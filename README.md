@@ -225,6 +225,58 @@ entrance and which the exit, the gates, every room with its position, profile an
 full prefab, and the door list. The on-screen preview shows
 a trimmed version, since the real file carries every tile of every room.
 
+## Role, profile, style
+
+Three words that all sound like "what kind of room is this" and mean different
+things.
+
+**Room role** is what the room *is* to the level: `entrance`, `normal`, `arena`,
+`treasure`, `dead_end`, `corridor`, `boss`, `exit`. It is the only one of the
+three that goes into the prefab, and the game reads it when it builds a level -
+how many of these may appear, where they may sit, what happens in them. In the
+tool it decides one thing: how many exits the room gets, and it nudges the exit
+type (a `locked` door is far more likely on a `treasure` room).
+
+| Role | Exits |
+|---|---|
+| `dead_end` | 1 |
+| `corridor` | 2, on opposite sides |
+| `treasure`, `boss` | 1, sometimes 2 |
+| `entrance`, `exit` | 1, sometimes 2 |
+| `arena` | 2 to 4 |
+| `normal` | 2 to 4, usually 2 |
+
+**Subbiome profile** is how the space of that subbiome is *shaped*: the odds of
+each layout style plus the ranges for claustrophobia and obstacle density. It is
+an input to generation, not an output - it never appears in a prefab. It is also
+not the tileset: the tileset says how a subbiome looks, the profile says how it
+is built, and keeping them apart means the same catacombs can be tight or roomy
+without touching a single PNG.
+
+**Style** is the *method* used to draw the floor plan: `open`, `pillars`,
+`rooms_in_room`, `organic`, `symmetric`, `corridors`. Like the profile it is a
+way of producing the room rather than a property of it, so it stays out of the
+prefab; the map export records it per room as a note on where that room came
+from.
+
+```
+subbiome profile  --rolls-->  style + claustrophobia + obstacle density
+                                          |
+room role         --sets-->   exits       |
+                                          v
+                              the generator draws the floor plan
+                                          |
+tileset           --dresses->  the finished room
+```
+
+A prefab therefore carries the role and not the profile or the style: the game is
+told "this is an arena with two exits", not "this was carved out of rock at 82%
+claustrophobia".
+
+Today the role only affects exits. It does not force an arena to be larger or a
+treasure room to carry more loot markers - worth wiring up when the game starts
+caring.
+
 ## Subbiome profiles and claustrophobia
 
 A subbiome does not only look different, it is shaped differently - catacombs are
@@ -249,11 +301,6 @@ Every style answers to it, though not equally:
 | `symmetric` | additive | 88% -> 73% |
 | `open` | additive | 88% -> 76% |
 | `pillars` | additive | 89% -> 81% |
-
-**Additive** styles start from an empty room and drop obstacles into it.
-**Subtractive** styles start from solid rock and carve the room out of it - only
-the latter produces real corridors and wall mass, which is why a tight profile
-leans on them.
 
 The two subtractive styles differ in what the skeleton is. `corridors` scatters
 chambers and joins them with a spanning tree, so it reads as a warren.
@@ -281,26 +328,9 @@ on. Claustrophobia changes the grain rather than the fill - roughly 23 doors per
 **Additive** styles start from an empty room and drop obstacles into it.
 **Subtractive** styles start from solid rock and carve the room out of it - only
 the latter produces real corridors and wall mass, which is why a tight profile
-leans on them.
-
-The two subtractive styles differ in what the skeleton is. `corridors` scatters
-chambers and joins them with a spanning tree, so it reads as a warren.
-
-`rooms_in_room` grows instead. A spine runs from the first exit to the others,
-and then it branches, over and over: a branch is either a **sub-room** - walled,
-entered through a single one-tile doorway - or another **two-tile corridor**,
-which can be branched from in turn. It keeps going until nothing fits any more,
-and as space runs out the pieces it tries get smaller, so the room ends up filled
-rather than stopping with a quarter of it untouched. Measured on 64x48 rooms,
-about 10% of the interior is left as rock nobody built in.
-
-That is where sub-rooms come from: each keeps its own wall and one doorway, and
-those doorways are what the prefab records in `doors` and what the door graphic is
-drawn on. Claustrophobia changes the grain rather than the fill - roughly 9 doors
-per room at 0 against 25 at 100, the same space cut into more, smaller pieces. A subtractive style joins every exit itself
-(spanning tree over chambers and exits, plus a loop or two), so the generator does
-not also drive corridors from each exit to the middle the way it does for additive
-styles.
+leans on them. A subtractive style also joins every exit itself, so the generator
+does not additionally drive corridors from each exit to the middle the way it
+does for the additive ones.
 
 ## Canvas controls
 

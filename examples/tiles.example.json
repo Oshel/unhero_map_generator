@@ -1,0 +1,12 @@
+{
+  "tileSize": 32,
+  "roles": {
+    "floor": ["floor_a.png", "floor_b.png", "floor_c.png"],
+    "wall": ["wall.png"],
+    "obstacle_low": ["crate.png"],
+    "obstacle_high": ["pillar.png"],
+    "pit": ["pit.png"],
+    "water": ["water.png"],
+    "hazard": ["spikes.png"]
+  }
+}

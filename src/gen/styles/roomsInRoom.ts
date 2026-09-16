@@ -33,9 +33,16 @@ function tightness(ctx: StyleContext): number {
   return Math.max(0, Math.min(100, ctx.resolved.claustrophobia)) / 100;
 }
 
+/**
+ * The smallest sub-room worth having is three by three of floor. The rect here
+ * is the outside of the room, wall ring included, so that is five by five.
+ */
+const MIN_ROOM_SIDE = 5;
+
 /** Sub-rooms get smaller and more numerous as the subbiome tightens. */
 function roomSizeRange(c: number): [number, number] {
-  return [Math.round(lerp(6, 4, c)), Math.round(lerp(14, 8, c))];
+  const low = Math.max(MIN_ROOM_SIDE, Math.round(lerp(7, MIN_ROOM_SIDE, c)));
+  return [low, Math.max(low, Math.round(lerp(14, 9, c)))];
 }
 
 function insideInterior(size: Size, r: Rect): boolean {
@@ -82,6 +89,13 @@ export const roomsInRoomStyle: StyleFn = (ctx) => {
 
   /** Floor tiles a room can hang off, collected as we carve. */
   const anchors: Array<[number, number]> = [];
+  /**
+   * Tiles that have to stay solid: the two jambs either side of a doorway. A
+   * room placed later may legally take rock that belongs to an older room's
+   * wall ring, and if that rock is a jamb the older door ends up with a gap
+   * beside it instead of a wall.
+   */
+  const reserved = new Set<number>();
   const corridors: Rect[] = [];
   const carveCorridorRect = (r: Rect): void => {
     const x0 = Math.max(1, Math.min(r.x0, r.x1));
@@ -195,8 +209,10 @@ export const roomsInRoomStyle: StyleFn = (ctx) => {
       deadEnds++;
       continue;
     }
-    // One tile of rock to punch through, or two when hanging off another room.
-    const gap = ctx.rng.int(1, 2);
+    // The room hangs straight off the tile in front of the anchor: that tile is
+    // the room's own wall, and the doorway is punched through it. Leaving rock
+    // between the two instead turns every doorway into a two tile passage one
+    // tile wide - a stub of corridor nobody asked for in front of every door.
     const w = roomSide();
     const h = roomSide();
 
@@ -204,29 +220,35 @@ export const roomsInRoomStyle: StyleFn = (ctx) => {
     let door: RoomDoor;
     switch (dir) {
       case 'n':
-        rect = { x0: ax - Math.floor(w / 2), y0: ay - gap - h, x1: 0, y1: ay - gap - 1 };
+        rect = { x0: ax - Math.floor(w / 2), y0: ay - h, x1: 0, y1: ay - 1 };
         rect.x1 = rect.x0 + w - 1;
         door = { x: ax, y: rect.y1, axis: 'ns' };
         break;
       case 's':
-        rect = { x0: ax - Math.floor(w / 2), y0: ay + gap + 1, x1: 0, y1: ay + gap + h };
+        rect = { x0: ax - Math.floor(w / 2), y0: ay + 1, x1: 0, y1: ay + h };
         rect.x1 = rect.x0 + w - 1;
         door = { x: ax, y: rect.y0, axis: 'ns' };
         break;
       case 'w':
-        rect = { x0: ax - gap - w, y0: ay - Math.floor(h / 2), x1: ax - gap - 1, y1: 0 };
+        rect = { x0: ax - w, y0: ay - Math.floor(h / 2), x1: ax - 1, y1: 0 };
         rect.y1 = rect.y0 + h - 1;
         door = { x: rect.x1, y: ay, axis: 'ew' };
         break;
       default:
-        rect = { x0: ax + gap + 1, y0: ay - Math.floor(h / 2), x1: ax + gap + w, y1: 0 };
+        rect = { x0: ax + 1, y0: ay - Math.floor(h / 2), x1: ax + w, y1: 0 };
         rect.y1 = rect.y0 + h - 1;
         door = { x: rect.x0, y: ay, axis: 'ew' };
         break;
     }
 
-    // The doorway has to land in the room's own wall.
-    if (door.x < rect.x0 || door.x > rect.x1 || door.y < rect.y0 || door.y > rect.y1) {
+    // The doorway has to land in the room's own wall, and not in a corner of
+    // it: a corner has the room's wall on one side and whatever the neighbours
+    // left on the other, which is how you get a door with a gap beside it.
+    const inWall =
+      door.axis === 'ns'
+        ? door.x > rect.x0 && door.x < rect.x1 && (door.y === rect.y0 || door.y === rect.y1)
+        : door.y > rect.y0 && door.y < rect.y1 && (door.x === rect.x0 || door.x === rect.x1);
+    if (!inWall) {
       deadEnds++;
       continue;
     }
@@ -234,26 +256,40 @@ export const roomsInRoomStyle: StyleFn = (ctx) => {
       deadEnds++;
       continue;
     }
-    // The rock between the anchor and the room has to be rock as well.
-    let passageClear = true;
-    for (let step = 1; step <= gap && passageClear; step++) {
-      const px = dir === 'w' ? ax - step : dir === 'e' ? ax + step : ax;
-      const py = dir === 'n' ? ay - step : dir === 's' ? ay + step : ay;
-      if (!isRock(px, py)) passageClear = false;
+    // Both tiles across the doorway have to be solid and stay solid. They are
+    // this room's own wall ring, but a sub-room placed earlier may already have
+    // punched its own door through one of them, and two doors side by side are
+    // not a doorway, they are a gap.
+    const jambs: Array<[number, number]> =
+      door.axis === 'ns'
+        ? [
+            [door.x - 1, door.y],
+            [door.x + 1, door.y],
+          ]
+        : [
+            [door.x, door.y - 1],
+            [door.x, door.y + 1],
+          ];
+    if (!jambs.every(([jx, jy]) => isRock(jx, jy))) {
+      deadEnds++;
+      continue;
     }
-    if (!passageClear) {
+    // Nor may the room being carved out take a jamb that is already spoken for.
+    let takesAJamb = false;
+    for (let y = rect.y0 + 1; y <= rect.y1 - 1 && !takesAJamb; y++) {
+      for (let x = rect.x0 + 1; x <= rect.x1 - 1 && !takesAJamb; x++) {
+        if (reserved.has(y * size.w + x)) takesAJamb = true;
+      }
+    }
+    if (takesAJamb) {
       deadEnds++;
       continue;
     }
 
     carveRect(layers, size, rect.x0 + 1, rect.y0 + 1, rect.x1 - 1, rect.y1 - 1);
-    for (let step = 1; step <= gap; step++) {
-      const px = dir === 'w' ? ax - step : dir === 'e' ? ax + step : ax;
-      const py = dir === 'n' ? ay - step : dir === 's' ? ay + step : ay;
-      carveRect(layers, size, px, py, px, py);
-    }
     carveRect(layers, size, door.x, door.y, door.x, door.y);
     ctx.doors.push(door);
+    for (const [jx, jy] of jambs) reserved.add(jy * size.w + jx);
     for (let y = rect.y0 + 1; y <= rect.y1 - 1; y++) {
       for (let x = rect.x0 + 1; x <= rect.x1 - 1; x++) anchors.push([x, y]);
     }

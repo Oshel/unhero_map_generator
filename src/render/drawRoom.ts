@@ -6,6 +6,8 @@ import {
   BASE_TILE_PX,
   CANVAS_BG,
   CHUNK_COLOR,
+  ROCK_COLOR,
+  ROUTE_COLOR,
   DOOR_COLOR,
   EXIT_COLOR,
   GATE_COLOR,
@@ -41,11 +43,42 @@ export interface DrawOptions {
   hover: { x: number; y: number } | null;
   /** Doors and gates, drawn over the tiles they stand in. */
   fixtures: Fixture[];
+  /** The shortest way from the entrance to the exit, tile by tile. */
+  route: Array<[number, number]>;
   /** devicePixelRatio the backing store was sized with. */
   dpr: number;
 }
 
 const LAYER_ORDER: LayerName[] = ['ground', 'blocking', 'deco', 'overlay'];
+
+/**
+ * Tile edges snapped to whole device pixels.
+ *
+ * A tile is `32 * zoom` CSS pixels and the zoom is continuous, so tile edges
+ * land mid-pixel at almost any zoom. The canvas then antialiases each tile
+ * against the one beside it, and wherever the rounding tips the same way down a
+ * whole column you get that seam running through the floor and on through the
+ * wall. Snapping both edges to the device grid - and taking the next tile's
+ * left edge as this tile's right edge - leaves no gap to antialias.
+ */
+function snapper(dpr: number): (value: number) => number {
+  return (value: number) => Math.round(value * dpr) / dpr;
+}
+
+/** A wall with wall on all eight sides is rock nobody sees the face of. */
+function buriedInRock(grid: TileGrid, x: number, y: number, w: number, h: number): boolean {
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      // Outside the room is more rock, so the border reads as solid too.
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      if (grid[ny][nx] !== 'wall') return false;
+    }
+  }
+  return true;
+}
 
 /** Square art fills the tile; taller or wider art is fitted, bottom anchored. */
 function drawTileImage(
@@ -54,11 +87,20 @@ function drawTileImage(
   tile: number,
   x: number,
   y: number,
+  snap: (value: number) => number,
   offsetX = 0,
   offsetY = 0,
 ): void {
   if (entry.square) {
-    g.drawImage(entry.img, x * tile + offsetX, y * tile + offsetY, tile, tile);
+    const x0 = snap(x * tile + offsetX);
+    const y0 = snap(y * tile + offsetY);
+    g.drawImage(
+      entry.img,
+      x0,
+      y0,
+      snap((x + 1) * tile + offsetX) - x0,
+      snap((y + 1) * tile + offsetY) - y0,
+    );
     return;
   }
   const scale = Math.min(tile / entry.w, tile / entry.h);
@@ -66,10 +108,10 @@ function drawTileImage(
   const dh = entry.h * scale;
   g.drawImage(
     entry.img,
-    x * tile + (tile - dw) / 2 + offsetX,
-    y * tile + tile - dh + offsetY,
-    dw,
-    dh,
+    snap(x * tile + (tile - dw) / 2 + offsetX),
+    snap(y * tile + tile - dh + offsetY),
+    snap(dw),
+    snap(dh),
   );
 }
 
@@ -80,6 +122,7 @@ function drawDecals(
   tile: number,
   tileset: Tileset,
   decorSeed: number,
+  snap: (value: number) => number,
 ): void {
   const h = grid.length;
   const w = grid[0]?.length ?? 0;
@@ -87,13 +130,15 @@ function drawDecals(
     for (let x = 0; x < w; x++) {
       const list = tileset.decals[grid[y][x]];
       if (!list) continue;
+      // Nothing is scattered on rock the player never sees the face of.
+      if (grid[y][x] === 'wall' && buriedInRock(grid, x, y, w, h)) continue;
       for (const decal of list) {
         const salt = (decal.salt * 2654435761 + decorSeed) | 0;
         if (hashUnit(x, y, salt) >= decal.density) continue;
         // Nudged off the tile centre, deterministically, so the grid stops showing.
         const dx = (hashUnit(x, y, salt + 7919) * 2 - 1) * decal.jitter * tile;
         const dy = (hashUnit(x, y, salt + 104729) * 2 - 1) * decal.jitter * tile;
-        drawTileImage(g, decal.image, tile, x, y, Math.round(dx), Math.round(dy));
+        drawTileImage(g, decal.image, tile, x, y, snap, Math.round(dx), Math.round(dy));
       }
     }
   }
@@ -105,15 +150,29 @@ function drawLayer(
   tile: number,
   tileset: Tileset | null,
   alpha: number,
+  snap: (value: number) => number,
 ): void {
   const h = grid.length;
   const w = grid[0]?.length ?? 0;
+  const fill = (x: number, y: number, color: string): void => {
+    const x0 = snap(x * tile);
+    const y0 = snap(y * tile);
+    g.fillStyle = color;
+    g.fillRect(x0, y0, snap((x + 1) * tile) - x0, snap((y + 1) * tile) - y0);
+  };
   g.globalAlpha = alpha;
   for (let y = 0; y < h; y++) {
     const row = grid[y];
     for (let x = 0; x < w; x++) {
       const role = row[x];
       if (role === 'void') continue;
+
+      // Rock with rock on every side has no face to light, so there is nothing
+      // to draw but the dark. It also keeps the wall mass reading as depth.
+      if (role === 'wall' && buriedInRock(grid, x, y, w, h)) {
+        fill(x, y, ROCK_COLOR);
+        continue;
+      }
 
       // Autotiled terrain first: pick the variant that matches the neighbours.
       const blob = tileset?.blobs[role];
@@ -124,16 +183,18 @@ function drawLayer(
         if (index !== undefined) {
           const sx = (index % blob.columns) * blob.tileSize;
           const sy = Math.floor(index / blob.columns) * blob.tileSize;
+          const dx = snap(x * tile);
+          const dy = snap(y * tile);
           g.drawImage(
             blob.img,
             sx,
             sy,
             blob.tileSize,
             blob.tileSize,
-            x * tile,
-            y * tile,
-            tile,
-            tile,
+            dx,
+            dy,
+            snap((x + 1) * tile) - dx,
+            snap((y + 1) * tile) - dy,
           );
           continue;
         }
@@ -141,10 +202,9 @@ function drawLayer(
 
       const images = tileset?.images[role];
       if (images && images.length > 0) {
-        drawTileImage(g, variantFor(images, x, y), tile, x, y);
+        drawTileImage(g, variantFor(images, x, y), tile, x, y, snap);
       } else {
-        g.fillStyle = ROLE_COLORS[role];
-        g.fillRect(x * tile, y * tile, tile, tile);
+        fill(x, y, ROLE_COLORS[role]);
       }
     }
   }
@@ -211,10 +271,15 @@ export function drawRoom(g: CanvasRenderingContext2D, opts: DrawOptions): void {
   const height = doc.size.h * tile;
 
   // Everything below is in CSS pixels; the dpr scale stays in the transform.
+  const snap = snapper(dpr);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // Pixel art: no smoothing, or every tile bleeds into the one beside it.
+  g.imageSmoothingEnabled = false;
   g.fillStyle = CANVAS_BG;
   g.fillRect(0, 0, g.canvas.width / dpr, g.canvas.height / dpr);
-  g.translate(view.panX, view.panY);
+  // A fractional pan puts every tile back on half a pixel however well the
+  // tiles themselves are snapped.
+  g.translate(snap(view.panX), snap(view.panY));
 
   g.fillStyle = '#101318';
   g.fillRect(0, 0, width, height);
@@ -222,10 +287,10 @@ export function drawRoom(g: CanvasRenderingContext2D, opts: DrawOptions): void {
   for (const name of LAYER_ORDER) {
     if (!view.visibility[name]) continue;
     const alpha = name === 'deco' || name === 'overlay' ? 0.85 : 1;
-    drawLayer(g, doc.layers[name], tile, tileset, alpha);
+    drawLayer(g, doc.layers[name], tile, tileset, alpha, snap);
     // Decorations sit on top of the layer that carries their role.
     if (tileset && view.visibility.decals && (name === 'ground' || name === 'blocking')) {
-      drawDecals(g, doc.layers[name], tile, tileset, doc.decorSeed);
+      drawDecals(g, doc.layers[name], tile, tileset, doc.decorSeed, snap);
     }
   }
 
@@ -299,6 +364,24 @@ export function drawRoom(g: CanvasRenderingContext2D, opts: DrawOptions): void {
       g.fillRect(fixture.x * tile, fixture.y * tile, w * tile, h * tile);
       g.globalAlpha = 1;
     }
+  }
+
+  // Under the markers, over the tiles: the run from the entrance to the exit.
+  if (view.visibility.route && opts.route.length > 1) {
+    g.strokeStyle = ROUTE_COLOR;
+    g.lineWidth = Math.max(1.5, tile * 0.3);
+    g.lineJoin = 'round';
+    g.lineCap = 'round';
+    g.globalAlpha = 0.75;
+    g.beginPath();
+    opts.route.forEach(([x, y], i) => {
+      const cx = x * tile + tile / 2;
+      const cy = y * tile + tile / 2;
+      if (i === 0) g.moveTo(cx, cy);
+      else g.lineTo(cx, cy);
+    });
+    g.stroke();
+    g.globalAlpha = 1;
   }
 
   if (view.visibility.markers) {

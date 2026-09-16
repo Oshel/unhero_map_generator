@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (
@@ -12,6 +12,15 @@ export function Field({ label, children, hint }: { label: string; children: Reac
   );
 }
 
+/**
+ * A number you can actually type into.
+ *
+ * Clamping on every keystroke fights the typist: the first digit of 137 is 1,
+ * which a field with a floor of 32 immediately rewrites to 32, and the rest of
+ * the number lands on top of that. So the keystrokes go into a draft and the
+ * value is only clamped and handed over when the field is left or Enter is
+ * pressed. An empty or nonsense draft falls back to the value that was there.
+ */
 export function NumberField({
   value,
   min,
@@ -25,16 +34,30 @@ export function NumberField({
   step?: number;
   onChange: (value: number) => void;
 }) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const commit = (raw: string): void => {
+    setDraft(null);
+    const next = Number(raw);
+    if (raw.trim() === '' || !Number.isFinite(next)) return;
+    let clamped = next;
+    if (min !== undefined) clamped = Math.max(min, clamped);
+    if (max !== undefined) clamped = Math.min(max, clamped);
+    onChange(clamped);
+  };
+
   return (
     <input
       type="number"
-      value={value}
+      value={draft ?? String(value)}
       min={min}
       max={max}
       step={step}
-      onChange={(e) => {
-        const next = Number(e.target.value);
-        if (Number.isFinite(next)) onChange(next);
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={(e) => commit(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit((e.target as HTMLInputElement).value);
+        if (e.key === 'Escape') setDraft(null);
       }}
     />
   );

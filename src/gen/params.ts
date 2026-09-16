@@ -5,22 +5,9 @@ import { DEFAULT_PROFILE_ID, profileById, type SubbiomeProfile } from './profile
 
 export { EXIT_WIDTH, MAX_GEN_ATTEMPTS, MAX_SIZE, MIN_SIZE };
 
-export type LayoutStyle =
-  | 'open'
-  | 'pillars'
-  | 'rooms_in_room'
-  | 'organic'
-  | 'symmetric'
-  | 'corridors';
+export type LayoutStyle = 'open' | 'rooms_in_room' | 'organic';
 
-export const LAYOUT_STYLES: readonly LayoutStyle[] = [
-  'open',
-  'pillars',
-  'rooms_in_room',
-  'organic',
-  'symmetric',
-  'corridors',
-] as const;
+export const LAYOUT_STYLES: readonly LayoutStyle[] = ['open', 'rooms_in_room', 'organic'] as const;
 
 /**
  * Additive styles start from an empty room and drop obstacles into it.
@@ -29,11 +16,8 @@ export const LAYOUT_STYLES: readonly LayoutStyle[] = [
  */
 export const STYLE_MODE: Record<LayoutStyle, 'additive' | 'subtractive'> = {
   open: 'additive',
-  pillars: 'additive',
   rooms_in_room: 'subtractive',
   organic: 'additive',
-  symmetric: 'additive',
-  corridors: 'subtractive',
 };
 
 export interface ExitConfig {
@@ -113,7 +97,7 @@ export function defaultParams(): GenParams {
     obstacleDensity: { auto: true, value: 25 },
     profile: DEFAULT_PROFILE_ID,
     claustrophobia: { auto: true, value: 60 },
-    style: { auto: true, value: 'corridors' },
+    style: { auto: true, value: 'rooms_in_room' },
     water: { auto: true, enabled: false, density: 15 },
     pits: { auto: true, enabled: false, density: 15 },
     markers: { spawn: 4, loot: 2, prop: 6 },
@@ -154,7 +138,7 @@ function rollStyle(profile: SubbiomeProfile, rng: Rng): LayoutStyle {
     (style) => [style, profile.styleWeights[style] ?? 0] as const,
   ).filter(([, weight]) => weight > 0);
   const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
-  if (total <= 0) return 'corridors';
+  if (total <= 0) return 'rooms_in_room';
   let roll = rng.float(0, total);
   for (const [style, weight] of entries) {
     roll -= weight;

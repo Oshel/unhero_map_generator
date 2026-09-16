@@ -2,7 +2,14 @@ import type { ExitSide, ExitType, RoomRole } from '../types/prefab';
 import { EXIT_SIDES, EXIT_TYPES, ROOM_ROLES } from '../types/prefab';
 import type { PrefabMeta } from '../types/editor';
 import type { MapRunInfo, Mode, RunInfo } from '../App';
-import { MAP_SIZE_PRESETS, MIXED_PROFILE_ID, type MapParams } from '../map/types';
+import {
+  clampMapSize,
+  MAP_SIZE_PRESETS,
+  MAX_MAP,
+  MIN_MAP,
+  MIXED_PROFILE_ID,
+  type MapParams,
+} from '../map/types';
 import { profileById, SUBBIOME_PROFILES } from '../gen/profiles';
 import {
   LAYOUT_STYLES,
@@ -121,6 +128,38 @@ export function LeftPanel(props: LeftPanelProps) {
                 </button>
               ))}
             </div>
+            <div className="row">
+              <Field label="Width" hint="tiles">
+                <NumberField
+                  value={props.mapParams.size.w}
+                  min={MIN_MAP}
+                  max={MAX_MAP}
+                  onChange={(v) =>
+                    props.setMapParams((prev) => ({
+                      ...prev,
+                      size: clampMapSize({ ...prev.size, w: v }),
+                    }))
+                  }
+                />
+              </Field>
+              <Field label="Height" hint="tiles">
+                <NumberField
+                  value={props.mapParams.size.h}
+                  min={MIN_MAP}
+                  max={MAX_MAP}
+                  onChange={(v) =>
+                    props.setMapParams((prev) => ({
+                      ...prev,
+                      size: clampMapSize({ ...prev.size, h: v }),
+                    }))
+                  }
+                />
+              </Field>
+            </div>
+            <p className="note">
+              Any size from {MIN_MAP} to {MAX_MAP} tiles a side. Rooms tile the map edge to edge, so
+              whatever does not divide into whole rooms is left as an even margin around the grid.
+            </p>
             <Field label="Room size" hint="every room on the grid">
               <Segmented<'random' | 'fixed'>
                 value={props.mapParams.roomSize.mode}
@@ -181,17 +220,19 @@ export function LeftPanel(props: LeftPanelProps) {
               <Select<string>
                 value={props.mapParams.profile}
                 options={[
-                  { value: MIXED_PROFILE_ID, label: 'Mixed - a profile per room' },
+                  { value: MIXED_PROFILE_ID, label: 'Mixed - every subbiome, shuffled' },
                   ...SUBBIOME_PROFILES.map((p) => ({ value: p.id, label: p.label })),
                 ]}
                 onChange={(v) => props.setMapParams((prev) => ({ ...prev, profile: v }))}
               />
             </Field>
             <p className="note">
-              Every room rolls its own size, role, style and claustrophobia; on Mixed it rolls its
-              profile too, so one dungeon can run from tight catacombs into open halls. The dungeon
-              gets exactly one entrance and one exit, both running to the map edge, and the exit
-              always sits in the final arena.
+              Subbiome, layout style and claustrophobia are laid out across the whole grid at
+              once, not rolled room by room: no two rooms you can walk between are the same kind of
+              space, and each option still gets about the same share of the map. On Mixed the
+              subbiome changes at every door too; pinned to one subbiome, the style and the
+              tightness still alternate. The dungeon gets exactly one entrance and one exit, both
+              running to the map edge, and the exit always sits in the final arena.
             </p>
           </Section>
 

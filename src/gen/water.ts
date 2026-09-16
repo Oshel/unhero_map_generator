@@ -52,6 +52,24 @@ function blob(
   return painted;
 }
 
+/**
+ * Ground under anything solid goes back to plain floor. Water and pits are
+ * painted before the pocket pass walls off what no exit can reach, so without
+ * this a sealed-off pond ends up buried inside the wall mass - a pit drawn in
+ * the middle of solid rock, which is what the player actually sees.
+ */
+export function dryUnderBlocking(layers: Layers, size: Size): void {
+  for (let y = 0; y < size.h; y++) {
+    for (let x = 0; x < size.w; x++) {
+      if (layers.blocking[y][x] === 'void') continue;
+      const ground = layers.ground[y][x];
+      if (ground === 'pit' || ground === 'water' || ground === 'hazard') {
+        layers.ground[y][x] = 'floor';
+      }
+    }
+  }
+}
+
 /** Water and pits, painted on the ground layer after the style pass. */
 export function liquidPass(
   layers: Layers,

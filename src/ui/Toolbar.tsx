@@ -15,6 +15,7 @@ const TOGGLES: Array<[keyof EditorView['visibility'], string]> = [
   ['fixtures', 'doors'],
   ['markers', 'markers'],
   ['exits', 'exits'],
+  ['route', 'route'],
   ['grid', 'grid'],
   ['chunkLines', '8-tile lines'],
   ['validation', 'problems'],

@@ -31,6 +31,8 @@ export interface LayerVisibility {
   exits: boolean;
   decals: boolean;
   fixtures: boolean;
+  /** The shortest way through a map, entrance to exit. */
+  route: boolean;
   grid: boolean;
   chunkLines: boolean;
   validation: boolean;

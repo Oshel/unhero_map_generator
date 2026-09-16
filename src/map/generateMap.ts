@@ -8,7 +8,8 @@ import { passabilityMask } from '../core/passability';
 import { EXIT_WIDTH, GATE_WIDTH } from '../gen/constants';
 import { generateRoom } from '../gen/generate';
 import { defaultParams, type ExitConfig, type GenParams } from '../gen/params';
-import { SUBBIOME_PROFILES } from '../gen/profiles';
+import { erodeOuterRock, syncRoomsToMap } from './rock';
+import { assignFlavours, flavourClashes } from './variety';
 import type { CheckResult } from '../validate/rules';
 import {
   MAX_CELL,
@@ -297,6 +298,15 @@ function buildOnce(params: MapParams, seed: number, meta: PrefabMeta): MapResult
   }
 
   // 3. Rooms, each generated with every door of its cell already pinned.
+  //    Subbiome, style and tightness are laid out across the whole grid at once
+  //    rather than rolled per room, so no two rooms you can walk between are
+  //    the same kind of space and every option gets its share of the map.
+  const flavours = assignFlavours(
+    grid.cells,
+    grid.cols,
+    rng,
+    params.profile === MIXED_PROFILE_ID ? null : params.profile,
+  );
   const base = defaultParams();
   const rooms: PlacedRoom[] = [];
   for (const c of grid.cells) {
@@ -310,13 +320,15 @@ function buildOnce(params: MapParams, seed: number, meta: PrefabMeta): MapResult
         offset: door?.offset ?? null,
       };
     }
-    const profile =
-      params.profile === MIXED_PROFILE_ID ? rng.pick(SUBBIOME_PROFILES).id : params.profile;
+    const flavour = flavours[c.index];
+    const profile = flavour.profile;
     const roomParams: GenParams = {
       ...base,
       size: { w: c.w, h: c.h },
       roomRole: c.role,
       profile,
+      style: { auto: false, value: flavour.style },
+      claustrophobia: { auto: false, value: flavour.tightness },
       exits: { auto: false, sides },
       markers: { ...params.markers },
     };
@@ -395,6 +407,12 @@ function buildOnce(params: MapParams, seed: number, meta: PrefabMeta): MapResult
     return { kind: plan.kind, room: c.index, side: plan.side, tiles };
   });
 
+  // 6. The rock the dungeon was cut from gets an irregular outside, or the map
+  //    reads as a box with a wall painted round it. Last, so the gates and
+  //    everything else are already in place for the erosion to work around.
+  erodeOuterRock(layers, size, rng);
+  syncRoomsToMap(rooms, layers, size);
+
   const doc: MapDoc = {
     size,
     decorSeed: rng.int(0, 0x3fffffff),
@@ -469,7 +487,21 @@ export function validateMap(doc: MapDoc): MapReport {
   }
   const unlinked = doc.rooms.filter((r) => !linked.has(r.index));
 
+  // Neighbours have to feel different: same subbiome and same layout style on
+  // both sides of a door is the run of identical rooms this is here to stop.
+  const clashes = flavourClashes(doc.rooms);
+
   const checks: CheckResult[] = [
+    {
+      id: 'map_variety',
+      label: 'No two rooms in a row feel the same',
+      ok: clashes.length <= Math.floor(doc.rooms.length / 20),
+      message:
+        clashes.length === 0
+          ? 'every door leads into a different kind of space'
+          : `${clashes.length} pair(s) of neighbours share a subbiome and a style`,
+      tiles: clashes.map(([a]) => [a.x + 1, a.y + 1] as [number, number]),
+    },
     {
       id: 'map_portals',
       label: 'One way in, one way out',
@@ -550,6 +582,70 @@ export function generateMap(params: MapParams, seed: number, meta: PrefabMeta): 
     links: [],
   };
   return { doc, seed, attempts: MAX_MAP_ATTEMPTS, report: validateMap(doc) };
+}
+
+/**
+ * The quickest way through: tile by tile from the entrance gate to the exit.
+ *
+ * Breadth first over walkable tiles, so the first time the exit is reached it
+ * is by a shortest path - which is the run the player takes if they never look
+ * around, and so the yardstick for how much of the dungeon is optional.
+ */
+export function shortestRoute(map: MapDoc): Array<[number, number]> {
+  const { w, h } = map.size;
+  const passable = passabilityMask(map.layers);
+  const tilesOf = (kind: 'entrance' | 'exit'): Array<[number, number]> =>
+    map.portals.filter((p) => p.kind === kind).flatMap((p) => p.tiles);
+
+  const goal = new Set(
+    tilesOf('exit')
+      .filter(([x, y]) => passable.mask[y * w + x])
+      .map(([x, y]) => y * w + x),
+  );
+  const queue: number[] = [];
+  const cameFrom = new Int32Array(w * h).fill(-1);
+  const seen = new Uint8Array(w * h);
+  for (const [x, y] of tilesOf('entrance')) {
+    const i = y * w + x;
+    if (!passable.mask[i] || seen[i]) continue;
+    seen[i] = 1;
+    queue.push(i);
+  }
+  if (queue.length === 0 || goal.size === 0) return [];
+
+  let head = 0;
+  let found = -1;
+  while (head < queue.length && found === -1) {
+    const current = queue[head++];
+    if (goal.has(current)) {
+      found = current;
+      break;
+    }
+    const cx = current % w;
+    const cy = Math.floor(current / w);
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const next = ny * w + nx;
+      if (seen[next] || !passable.mask[next]) continue;
+      seen[next] = 1;
+      cameFrom[next] = current;
+      queue.push(next);
+    }
+  }
+  if (found === -1) return [];
+
+  const path: Array<[number, number]> = [];
+  for (let at = found; at !== -1; at = cameFrom[at]) {
+    path.push([at % w, Math.floor(at / w)]);
+  }
+  return path.reverse();
 }
 
 /** The map as something the canvas and the JSON preview can treat like a room. */

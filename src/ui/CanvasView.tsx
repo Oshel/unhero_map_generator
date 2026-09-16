@@ -4,6 +4,7 @@ import type { ValidationReport } from '../validate/validate';
 import { drawRoom, type Fixture } from '../render/drawRoom';
 import { BASE_TILE_PX } from '../render/palette';
 import type { Tileset } from '../render/tileset';
+import { MAX_ZOOM, minZoom } from '../render/zoom';
 
 export interface CanvasViewProps {
   doc: RoomDoc;
@@ -12,6 +13,8 @@ export interface CanvasViewProps {
   report: ValidationReport | null;
   tileset: Tileset | null;
   fixtures: Fixture[];
+  /** The shortest way from the entrance to the exit, tile by tile. */
+  route: Array<[number, number]>;
   onViewport?: (size: { w: number; h: number }) => void;
 }
 
@@ -24,7 +27,7 @@ interface PanState {
 
 /** Read-only preview: pan, zoom, inspect. Rooms come from the generator. */
 export function CanvasView(props: CanvasViewProps) {
-  const { doc, view, setView, report, tileset, fixtures } = props;
+  const { doc, view, setView, report, tileset, fixtures, route } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<PanState | null>(null);
@@ -69,8 +72,8 @@ export function CanvasView(props: CanvasViewProps) {
     const g = canvas.getContext('2d');
     if (!g) return;
     g.imageSmoothingEnabled = false;
-    drawRoom(g, { doc, view, report, tileset, hover, fixtures, dpr });
-  }, [doc, view, report, tileset, hover, fixtures, canvasSize]);
+    drawRoom(g, { doc, view, report, tileset, hover, fixtures, route, dpr });
+  }, [doc, view, report, tileset, hover, fixtures, route, canvasSize]);
 
   const toTile = (e: React.PointerEvent): { x: number; y: number } => {
     const canvas = canvasRef.current as HTMLCanvasElement;
@@ -103,17 +106,25 @@ export function CanvasView(props: CanvasViewProps) {
     }));
   };
 
+  // A big map has to zoom out further than a small one, or half of it stays
+  // off screen at the floor.
+  const floor = minZoom(doc.size, canvasSize);
+
+  /** Zoom about a point, keeping whatever is under it where it is. */
+  const zoomTo = (next: number, ax: number, ay: number): void => {
+    setView((v) => {
+      const zoom = Math.max(floor, Math.min(MAX_ZOOM, next));
+      const ratio = zoom / v.zoom;
+      return { ...v, zoom, panX: ax - (ax - v.panX) * ratio, panY: ay - (ay - v.panY) * ratio };
+    });
+  };
+
   const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current as HTMLCanvasElement;
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    setView((v) => {
-      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-      const zoom = Math.max(0.25, Math.min(4, v.zoom * factor));
-      const ratio = zoom / v.zoom;
-      return { ...v, zoom, panX: mx - (mx - v.panX) * ratio, panY: my - (my - v.panY) * ratio };
-    });
+    zoomTo(view.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), mx, my);
   };
 
   const tileAt = (x: number, y: number): string => {
@@ -136,9 +147,30 @@ export function CanvasView(props: CanvasViewProps) {
         onWheel={onWheel}
         onContextMenu={(e) => e.preventDefault()}
       />
+      <div className="canvas-zoom">
+        <input
+          type="range"
+          min={Math.round(Math.log2(floor) * 100)}
+          max={Math.round(Math.log2(MAX_ZOOM) * 100)}
+          value={Math.round(Math.log2(Math.max(floor, view.zoom)) * 100)}
+          // The slider is logarithmic: 25% to 400% on a linear track spends most
+          // of its length above 1x, where a nudge does nothing you can see.
+          onChange={(e) => {
+            const zoom = Math.pow(2, Number(e.target.value) / 100);
+            zoomTo(zoom, canvasSize.w / 2, canvasSize.h / 2);
+          }}
+          aria-label="Zoom"
+        />
+        <button
+          type="button"
+          onClick={() => zoomTo(1, canvasSize.w / 2, canvasSize.h / 2)}
+          title="Back to 100%"
+        >
+          {Math.round(view.zoom * 100)}%
+        </button>
+      </div>
       <div className="canvas-hud">
-        {hover ? `${hover.x}, ${hover.y} · ${tileAt(hover.x, hover.y)}` : '-'} &middot; zoom{' '}
-        {Math.round(view.zoom * 100)}%
+        {hover ? `${hover.x}, ${hover.y} · ${tileAt(hover.x, hover.y)}` : '-'}
       </div>
     </div>
   );

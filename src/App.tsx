@@ -4,7 +4,7 @@ import { defaultMeta } from './types/editor';
 import { timeSeed } from './core/rng';
 import { defaultParams, type GenParams, type ResolvedParams } from './gen/params';
 import { generateRoom } from './gen/generate';
-import { generateMap, mapFixtures, mapToDoc } from './map/generateMap';
+import { generateMap, mapFixtures, mapToDoc, shortestRoute } from './map/generateMap';
 
 import { MAP_SIZE_PRESETS, MIXED_PROFILE_ID, type MapParams, type MapResult } from './map/types';
 import { mapSummaryJson, mapToJson } from './io/exportMap';
@@ -14,6 +14,7 @@ import { ImportError, parsePrefab } from './io/importPrefab';
 import { copyToClipboard, downloadText } from './io/download';
 import { loadTilesetFromFiles, type Tileset } from './render/tileset';
 import { BASE_TILE_PX } from './render/palette';
+import { fitZoom } from './render/zoom';
 import { CanvasView } from './ui/CanvasView';
 import { LeftPanel } from './ui/LeftPanel';
 import { RightPanel } from './ui/RightPanel';
@@ -33,6 +34,7 @@ function defaultView(): EditorView {
       fixtures: true,
       markers: true,
       exits: true,
+      route: true,
       grid: true,
       chunkLines: false,
       validation: true,
@@ -113,6 +115,12 @@ export function App() {
     }));
   }, [mode, map, doc]);
 
+  // Only a map has a way in and a way out, so only a map has a route through.
+  const route = useMemo(
+    () => (mode === 'map' && map ? shortestRoute(map.doc) : []),
+    [mode, map],
+  );
+
   const json = useMemo(() => {
     if (mode === 'map' && map) return mapSummaryJson(map.doc, meta);
     return prefabToJson(toPrefab(doc));
@@ -131,7 +139,7 @@ export function App() {
         result.report.ok
           ? {
               kind: 'ok',
-              text: `Map of ${result.doc.rooms.length} rooms and ${result.doc.links.length} corridors in ${result.attempts} attempt(s), seed ${result.seed}.`,
+              text: `Map of ${result.doc.rooms.length} rooms and ${result.doc.links.length} corridors in ${result.attempts} attempt(s), seed ${result.seed}. Entrance to exit: ${shortestRoute(result.doc).length} tiles.`,
             }
           : {
               kind: 'error',
@@ -178,21 +186,16 @@ export function App() {
   }, [mode]);
 
   const handleFit = useCallback(() => {
-    const zoom = Math.max(
-      0.25,
-      Math.min(
-        4,
-        Math.min(
-          (viewport.w - 32) / (shownDoc.size.w * BASE_TILE_PX),
-          (viewport.h - 32) / (shownDoc.size.h * BASE_TILE_PX),
-        ),
-      ),
-    );
+    // Whatever it takes to see all of it: a 512 tile map needs to go well below
+    // the zoom floor a single room is comfortable at, and centring on the
+    // viewport is only centring if the document is allowed to be smaller than
+    // it - clamping the pan to a margin pushed big maps off the left edge.
+    const zoom = fitZoom(shownDoc.size, viewport);
     setView((v) => ({
       ...v,
       zoom,
-      panX: Math.max(8, (viewport.w - shownDoc.size.w * BASE_TILE_PX * zoom) / 2),
-      panY: Math.max(8, (viewport.h - shownDoc.size.h * BASE_TILE_PX * zoom) / 2),
+      panX: (viewport.w - shownDoc.size.w * BASE_TILE_PX * zoom) / 2,
+      panY: (viewport.h - shownDoc.size.h * BASE_TILE_PX * zoom) / 2,
     }));
   }, [shownDoc.size, viewport]);
 
@@ -292,6 +295,7 @@ export function App() {
           report={report}
           tileset={tileset}
           fixtures={fixtures}
+          route={route}
           onViewport={setViewport}
         />
         <div className="statusbar">

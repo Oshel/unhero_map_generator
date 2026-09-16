@@ -40,10 +40,14 @@ export const MARKER_LABELS: Record<MarkerKind, string> = {
 };
 
 export const CANVAS_BG = '#0d0f12';
+/** Wall with wall on all eight sides - drawn as plain dark, never textured. */
+export const ROCK_COLOR = '#000000';
 export const GRID_COLOR = 'rgba(255,255,255,0.06)';
 export const CHUNK_COLOR = 'rgba(255,255,255,0.18)';
 export const EXIT_COLOR = '#49c16a';
 export const DOOR_COLOR = '#c08a3e';
 export const GATE_COLOR = '#d9b25a';
 export const PROBLEM_COLOR = 'rgba(224,68,68,0.45)';
+/** The straight run from the entrance gate to the exit. */
+export const ROUTE_COLOR = '#63d0ff';
 export const BASE_TILE_PX = 32;

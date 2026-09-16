@@ -9,8 +9,9 @@ import { defaultMeta } from '../src/types/editor';
 import { generateRoom } from '../src/gen/generate';
 import { LAYOUT_STYLES, SIZE_PRESETS, defaultParams } from '../src/gen/params';
 import { ROOM_ROLES } from '../src/types/prefab';
+import type { Layers } from '../src/types/prefab';
 import { SUBBIOME_PROFILES } from '../src/gen/profiles';
-import { generateMap, mapFixtures } from '../src/map/generateMap';
+import { generateMap, mapFixtures, shortestRoute } from '../src/map/generateMap';
 import { passabilityMask } from '../src/core/passability';
 import { MAP_SIZE_PRESETS } from '../src/map/types';
 import { prefabToJson, toPrefab } from '../src/io/exportPrefab';
@@ -232,6 +233,8 @@ for (const style of LAYOUT_STYLES) {
     }
   }
 
+  // Read the curve off organic: rooms_in_room keeps the room full whatever the
+  // setting, so it is the wrong style to ask how tight the space feels.
   for (const claustrophobia of [0, 50, 100]) {
     const shares: number[] = [];
     for (let i = 0; i < 25; i++) {
@@ -239,7 +242,7 @@ for (const style of LAYOUT_STYLES) {
       const params = {
         ...base,
         size: { w: 48, h: 32 },
-        style: { auto: false, value: 'corridors' as const },
+        style: { auto: false, value: 'organic' as const },
         claustrophobia: { auto: false, value: claustrophobia },
       };
       const result = generateRoom(params, 6100 + i * 331, defaultMeta());
@@ -247,7 +250,7 @@ for (const style of LAYOUT_STYLES) {
       if (result.report.ok) ok++;
       else
         console.log(
-          `    corridors c=${claustrophobia} seed ${6100 + i * 331}: ${result.report.checks.filter((c) => !c.ok).map((c) => c.id).join(', ')}`,
+          `    organic c=${claustrophobia} seed ${6100 + i * 331}: ${result.report.checks.filter((c) => !c.ok).map((c) => c.id).join(', ')}`,
         );
       let open = 0;
       for (let y = 0; y < result.doc.size.h; y++)
@@ -283,6 +286,103 @@ for (const style of LAYOUT_STYLES) {
     `decor seed: ${seeds.size} distinct over 20 rooms, repeatable: ${stable ? 'yes' : 'NO'}`,
   );
   if (seeds.size < 18 || !stable) failures++;
+}
+
+// A pond you cannot reach the bank of is a hole painted inside solid rock. The
+// pocket pass walls off the floor around it, and nothing is passable about a
+// pit, so without the pool pass the pit itself stays behind in the wall mass.
+{
+  const strandedLiquid = (doc: { size: { w: number; h: number }; layers: Layers }): number => {
+    const { size, layers } = doc;
+    const passable = passabilityMask(layers).mask;
+    const visited = new Set<number>();
+    let count = 0;
+    for (let y = 0; y < size.h; y++) {
+      for (let x = 0; x < size.w; x++) {
+        const ground = layers.ground[y][x];
+        if (ground !== 'pit' && ground !== 'water') continue;
+        // Buried under something solid: dead on its own.
+        if (layers.blocking[y][x] !== 'void') {
+          count++;
+          continue;
+        }
+        if (visited.has(y * size.w + x)) continue;
+        visited.add(y * size.w + x);
+        const queue: Array<[number, number]> = [[x, y]];
+        let shore = false;
+        let pool = 0;
+        while (queue.length > 0) {
+          const [cx, cy] = queue.pop() as [number, number];
+          pool++;
+          for (const [dx, dy] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ]) {
+            const nx = cx + dx;
+            const ny = cy + dy;
+            if (nx < 0 || ny < 0 || nx >= size.w || ny >= size.h) continue;
+            const ni = ny * size.w + nx;
+            if (passable[ni]) shore = true;
+            const ng = layers.ground[ny][nx];
+            if (visited.has(ni) || layers.blocking[ny][nx] !== 'void') continue;
+            if (ng !== 'pit' && ng !== 'water') continue;
+            visited.add(ni);
+            queue.push([nx, ny]);
+          }
+        }
+        if (!shore) count += pool;
+      }
+    }
+    return count;
+  };
+
+  let bad = 0;
+  let kept = 0;
+  let rooms = 0;
+  for (const style of LAYOUT_STYLES) {
+    for (const claustrophobia of [20, 60, 95]) {
+      for (let i = 0; i < 12; i++) {
+        const params = {
+          ...defaultParams(),
+          size: { w: 48, h: 32 },
+          style: { auto: false as const, value: style },
+          claustrophobia: { auto: false as const, value: claustrophobia },
+          water: { auto: false as const, enabled: true, density: 35 },
+          pits: { auto: false as const, enabled: true, density: 35 },
+        };
+        const doc = generateRoom(params, 8800 + i * 137, defaultMeta()).doc;
+        rooms++;
+        bad += strandedLiquid(doc);
+        for (let y = 0; y < doc.size.h; y++)
+          for (let x = 0; x < doc.size.w; x++) {
+            const g = doc.layers.ground[y][x];
+            if (g === 'pit' || g === 'water') kept++;
+          }
+      }
+    }
+  }
+  // Maps compose rooms and carve gates through them, so check those too.
+  let badOnMaps = 0;
+  for (let i = 0; i < 6; i++) {
+    const map = generateMap(
+      {
+        size: { w: 160, h: 120 },
+        roomSize: { mode: 'random' as const, w: 24, h: 20 },
+        profile: 'mixed',
+        loopiness: 30,
+        markers: { spawn: 3, loot: 2, prop: 6 },
+      },
+      5500 + i * 313,
+      defaultMeta(),
+    );
+    badOnMaps += strandedLiquid(map.doc);
+  }
+  console.log(
+    `pits and water: ${bad} stranded over ${rooms} rooms, ${badOnMaps} over 6 maps, ${kept} reachable liquid tile(s) kept`,
+  );
+  if (bad > 0 || badOnMaps > 0 || kept === 0) failures++;
 }
 
 // Walls that form a mass must be walls, not furniture.
@@ -564,6 +664,7 @@ for (const style of LAYOUT_STYLES) {
   let doors = 0;
   let blockedDoors = 0;
   let doorsOnWallLine = 0;
+  let stubs = 0;
   for (let i = 0; i < 20; i++) {
     const params = {
       ...defaultParams(),
@@ -583,12 +684,91 @@ for (const style of LAYOUT_STYLES) {
           ? [doc.layers.blocking[d.y][d.x - 1], doc.layers.blocking[d.y][d.x + 1]]
           : [doc.layers.blocking[d.y - 1][d.x], doc.layers.blocking[d.y + 1][d.x]];
       if (across.every((role) => role !== 'void')) doorsOnWallLine++;
+
+      // A doorway is one tile of passage, not two. Leave rock between the room
+      // and what it hangs off and you get a stub of one-wide corridor in front
+      // of every door: the tile beyond the door is open, with solid on both
+      // sides of it, which is what this looks for.
+      const open = (x: number, y: number): boolean =>
+        x >= 0 &&
+        y >= 0 &&
+        x < doc.size.w &&
+        y < doc.size.h &&
+        doc.layers.blocking[y][x] === 'void';
+      const beyond: Array<[number, number]> =
+        d.axis === 'ns'
+          ? [
+              [d.x, d.y - 1],
+              [d.x, d.y + 1],
+            ]
+          : [
+              [d.x - 1, d.y],
+              [d.x + 1, d.y],
+            ];
+      for (const [nx, ny] of beyond) {
+        const pinched =
+          open(nx, ny) &&
+          (d.axis === 'ns'
+            ? !open(nx - 1, ny) && !open(nx + 1, ny)
+            : !open(nx, ny - 1) && !open(nx, ny + 1));
+        if (pinched) {
+          stubs++;
+          break;
+        }
+      }
     }
   }
   console.log(
-    `sub-room doors: ${(doors / rooms).toFixed(1)} per room, blocked ${blockedDoors}, standing in a wall ${doorsOnWallLine}/${doors}`,
+    `sub-room doors: ${(doors / rooms).toFixed(1)} per room, blocked ${blockedDoors}, standing in a wall ${doorsOnWallLine}/${doors}, with a one-wide stub in front ${stubs}/${doors}`,
   );
-  if (doors / rooms < 3 || blockedDoors > 0 || doorsOnWallLine / doors < 0.7) failures++;
+  // Every door, not most: a door with a gap beside it is not a door.
+  if (doors / rooms < 3 || blockedDoors > 0 || doorsOnWallLine < doors) failures++;
+  // A few are incidental - a later sub-room walls in the tile the door opens
+  // onto. A passage built that way would put one in front of nearly every door.
+  if (stubs / doors > 0.1) failures++;
+}
+
+// There has to be a way through: the entrance and the exit are joined by a walk
+// the player can actually take, and it is at most as long as the map is big.
+{
+  let maps = 0;
+  let missing = 0;
+  let total = 0;
+  let shortest = Infinity;
+  for (let i = 0; i < 12; i++) {
+    const map = generateMap(
+      {
+        size: { w: 160, h: 120 },
+        roomSize: { mode: 'random' as const, w: 24, h: 20 },
+        profile: 'mixed',
+        loopiness: 30,
+        markers: { spawn: 3, loot: 2, prop: 6 },
+      },
+      7700 + i * 197,
+      defaultMeta(),
+    );
+    maps++;
+    const route = shortestRoute(map.doc);
+    if (route.length === 0) {
+      missing++;
+      continue;
+    }
+    total += route.length;
+    shortest = Math.min(shortest, route.length);
+    // Every step is one tile, and every tile of it is walkable.
+    const passable = passabilityMask(map.doc.layers).mask;
+    for (let step = 0; step < route.length; step++) {
+      const [x, y] = route[step];
+      if (!passable[y * map.doc.size.w + x]) missing++;
+      if (step === 0) continue;
+      const [px, py] = route[step - 1];
+      if (Math.abs(px - x) + Math.abs(py - y) !== 1) missing++;
+    }
+  }
+  console.log(
+    `entrance to exit: avg ${(total / maps).toFixed(0)} tiles, shortest ${shortest}, broken ${missing} over ${maps} maps`,
+  );
+  if (missing > 0) failures++;
 }
 
 // Gates belong to the first and last room of a map; room openings carry nothing.

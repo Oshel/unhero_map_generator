@@ -287,6 +287,37 @@ button.primary {
   pointer-events: none;
 }
 
+.canvas-zoom {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(10, 12, 16, 0.8);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 7px;
+}
+
+.canvas-zoom input[type='range'] {
+  width: 140px;
+}
+
+.canvas-zoom button {
+  background: none;
+  border: none;
+  padding: 0;
+  min-width: 42px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.canvas-zoom button:hover {
+  color: var(--text);
+}
+
 .statusbar {
   border-top: 1px solid var(--line);
   padding: 5px 8px;

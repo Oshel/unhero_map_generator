@@ -97,6 +97,21 @@ export const MAP_SIZE_PRESETS: ReadonlyArray<{ label: string; size: Size }> = [
   { label: '320 x 240', size: { w: 320, h: 240 } },
 ];
 
+/**
+ * Map bounds. The floor is two of the smallest rooms across, or there is no
+ * grid to lay out; the ceiling is what one canvas and one export can carry.
+ */
+export const MIN_MAP = 32;
+export const MAX_MAP = 512;
+
+/** Any size the panel offers, kept inside what the generator can build. */
+export function clampMapSize(size: Size): Size {
+  return {
+    w: Math.max(MIN_MAP, Math.min(MAX_MAP, Math.round(size.w))),
+    h: Math.max(MIN_MAP, Math.min(MAX_MAP, Math.round(size.h))),
+  };
+}
+
 export const MIN_CELL = 12;
 export const MAX_CELL = 48;
 

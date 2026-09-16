@@ -1,4 +1,5 @@
-import type { Exit, Layers, RoomDoor, Size } from '../types/prefab';
+import type { Exit, ExitSide, Layers, RoomDoor, Size } from '../types/prefab';
+import { EXIT_SIDES } from '../types/prefab';
 import type { PrefabMeta, RoomDoc } from '../types/editor';
 import { makeLayers } from '../core/grid';
 import { floodFill } from '../core/floodfill';
@@ -8,17 +9,15 @@ import { mulberry32 } from '../core/rng';
 import { validateRoom, type ValidationReport } from '../validate/validate';
 import { placeMarkers } from './markers';
 import {
-  apronRect,
   buildShell,
-  carveExits,
   carveRect,
   clampToInterior,
-  corridorRects,
-  fitToInterior,
   exitAnchor,
+  exitTiles,
   markRect,
+  sideLength,
 } from './outline';
-import { MAX_CORRIDOR_WIDTH, MAX_GEN_ATTEMPTS, MIN_CORRIDOR_WIDTH } from './constants';
+import { EXIT_WIDTH, MAX_CORRIDOR_WIDTH, MAX_GEN_ATTEMPTS } from './constants';
 import { pickExits } from './exits';
 import { resolveParams, STYLE_MODE, type GenParams, type ResolvedParams } from './params';
 import { STYLE_REGISTRY } from './styles';
@@ -35,53 +34,170 @@ export interface GenResult {
 }
 
 /**
- * Tiles that must stay walkable: the apron in front of every exit plus a
- * corridor from each exit to the middle of the room. Styles paint around them.
+ * Offsets along each side where an opening of the given width would land
+ * straight in walkable floor - a chamber or a corridor standing against the
+ * room's own wall.
  */
-function buildProtected(
+export type Openings = Record<ExitSide, number[]>;
+
+/**
+ * A room before it has any way in or out.
+ *
+ * Exits used to be decided first and the interior built to serve them, which
+ * meant every doorway needed a passage dug from the wall to whatever was
+ * behind it - so you entered every room down a stub of corridor. It is the
+ * other way round now: the layout is built first and says where an opening
+ * would work, and only then is the wall breached. A map can therefore hang its
+ * doors where both neighbours already have a room against the wall.
+ */
+export interface RoomInterior {
+  size: Size;
+  layers: Layers;
+  doors: RoomDoor[];
+  resolved: ResolvedParams;
+  seed: number;
+  /** Rects the style had to leave walkable, carved after it ran. */
+  protectedRects: Array<[number, number, number, number]>;
+  openings: Openings;
+}
+
+/** The stages share a seed, so each salts it apart before rolling anything. */
+const FINISH_SALT = 0x5bf03635;
+const EXIT_SALT = 0x27d4eb2d;
+
+/** The tile just inside the wall, on the given side. */
+function insideOf(size: Size, side: ExitSide, offset: number, step: number): [number, number] {
+  switch (side) {
+    case 'n':
+      return [offset, step];
+    case 's':
+      return [offset, size.h - 1 - step];
+    case 'w':
+      return [step, offset];
+    default:
+      return [size.w - 1 - step, offset];
+  }
+}
+
+/**
+ * Somewhere the player can end up standing. Furniture counts: a crate against
+ * the wall is not a reason to dig a tunnel round it, it is a crate to move out
+ * of the doorway, and the opening pass clears it.
+ */
+function isEnterable(layers: Layers, x: number, y: number): boolean {
+  return layers.blocking[y][x] !== 'wall' && layers.ground[y][x] === 'floor';
+}
+
+/**
+ * Where an opening of `width` would put the player straight on open floor.
+ *
+ * Read off the finished layout, one tile in from the wall: if every tile behind
+ * the opening is walkable, the wall there is the wall of something you can
+ * stand in, and a doorway can simply be punched through it.
+ */
+export function openingsOf(layers: Layers, size: Size, width: number): Openings {
+  const openings = { n: [], e: [], s: [], w: [] } as Openings;
+  for (const side of EXIT_SIDES) {
+    const span = sideLength(size, side);
+    for (let offset = 1; offset <= span - width - 1; offset++) {
+      let ok = true;
+      for (let i = 0; i < width && ok; i++) {
+        const [x, y] = insideOf(size, side, offset + i, 1);
+        if (!isEnterable(layers, x, y)) ok = false;
+      }
+      if (ok) openings[side].push(offset);
+    }
+  }
+  return openings;
+}
+
+/**
+ * The one thing the interior owes the room before it knows its exits: somewhere
+ * open in the middle. A subtractive style digs its own corridors and needs no
+ * help; an additive one would otherwise be obstacles wall to wall.
+ */
+function centralHall(
   size: Size,
-  exits: Exit[],
-  rng: ReturnType<typeof mulberry32>,
   resolved: ResolvedParams,
 ): { mask: Uint8Array; rects: Array<[number, number, number, number]> } {
-  // A subtractive style digs its own corridors and joins every exit itself.
-  // Forcing spokes to the middle on top of that would undo the whole point.
-  const digsItsOwn = STYLE_MODE[resolved.style] === 'subtractive';
-  const claustro = Math.max(0, Math.min(100, resolved.claustrophobia)) / 100;
   const mask = new Uint8Array(size.w * size.h);
   const rects: Array<[number, number, number, number]> = [];
-  const center: [number, number] = [Math.floor(size.w / 2), Math.floor(size.h / 2)];
-
-  for (const exit of exits) {
-    rects.push(clampToInterior(size, apronRect(size, exit)));
-    if (digsItsOwn) continue;
-    const [ax, ay] = exitAnchor(size, exit);
-    // Tight rooms get the bare minimum, open ones get a proper thoroughfare.
-    const width = Math.max(
-      MIN_CORRIDOR_WIDTH,
-      Math.round(MIN_CORRIDOR_WIDTH + (1 - claustro) * (MAX_CORRIDOR_WIDTH - MIN_CORRIDOR_WIDTH)),
-    );
-    const horizontalFirst = exit.side === 'e' || exit.side === 'w' ? false : true;
-    const legs = corridorRects(ax, ay, center[0], center[1], width, horizontalFirst);
-    for (const leg of legs) rects.push(fitToInterior(size, leg));
-  }
-
-  if (exits.length === 0 && !digsItsOwn) {
-    // Exitless rooms still get an open middle so there is something to look at.
+  if (STYLE_MODE[resolved.style] !== 'subtractive') {
     const half = MAX_CORRIDOR_WIDTH - 1;
-    rects.push(
-      clampToInterior(size, [center[0] - half, center[1] - half, center[0] + half, center[1] + half]),
-    );
-  } else if (!digsItsOwn && exits.length > 1 && claustro < 0.5 && rng.chance(0.6)) {
-    // Open layouts get a hall in the middle; tight ones must not.
-    const half = MAX_CORRIDOR_WIDTH - 1;
-    rects.push(
-      clampToInterior(size, [center[0] - half, center[1] - half, center[0] + half, center[1] + half]),
-    );
+    const cx = Math.floor(size.w / 2);
+    const cy = Math.floor(size.h / 2);
+    rects.push(clampToInterior(size, [cx - half, cy - half, cx + half, cy + half]));
   }
-
   for (const [x0, y0, x1, y1] of rects) markRect(mask, size, x0, y0, x1, y1);
   return { mask, rects };
+}
+
+/** Stage one: the layout, and what it offers as a way in. */
+export function buildInterior(params: GenParams, seed: number): RoomInterior {
+  const rng = mulberry32(seed);
+  const resolved = resolveParams(params, rng, []);
+  const size: Size = { w: params.size.w, h: params.size.h };
+  const layers = makeLayers(size.w, size.h);
+
+  buildShell(layers, size);
+  const protectedArea = centralHall(size, resolved);
+  // Styles that build sub-rooms report their doorways here.
+  const doors: RoomDoor[] = [];
+  STYLE_REGISTRY[resolved.style]({
+    size,
+    layers,
+    exits: [],
+    protectedMask: protectedArea.mask,
+    rng,
+    params,
+    resolved,
+    doors,
+  });
+  // Carved last so nothing the style did can close it.
+  for (const [x0, y0, x1, y1] of protectedArea.rects) carveRect(layers, size, x0, y0, x1, y1);
+
+  return {
+    size,
+    layers,
+    doors,
+    resolved,
+    seed,
+    protectedRects: protectedArea.rects,
+    openings: openingsOf(layers, size, EXIT_WIDTH),
+  };
+}
+
+/**
+ * Breach the wall, and only dig if there is nothing behind it yet. An opening
+ * the layout offered lands in a chamber and costs one tile; anywhere else the
+ * passage goes straight in until it meets open floor.
+ */
+function openExits(layers: Layers, size: Size, exits: Exit[]): Uint8Array {
+  const mask = new Uint8Array(size.w * size.h);
+  const depth = (side: ExitSide): number =>
+    (side === 'n' || side === 's' ? size.h : size.w) - 2;
+
+  for (const exit of exits) {
+    for (const [x, y] of exitTiles(size, exit)) {
+      carveRect(layers, size, x, y, x, y);
+      mask[y * size.w + x] = 1;
+    }
+    for (let step = 1; step < depth(exit.side); step++) {
+      const tiles: Array<[number, number]> = [];
+      for (let i = 0; i < exit.width; i++) {
+        tiles.push(insideOf(size, exit.side, exit.offset + i, step));
+      }
+      // Whatever is here is cleared either way - the difference is whether the
+      // digging goes on. Arriving means the room was already open at this tile.
+      const arrived = tiles.every(([x, y]) => isEnterable(layers, x, y));
+      for (const [x, y] of tiles) {
+        carveRect(layers, size, x, y, x, y);
+        mask[y * size.w + x] = 1;
+      }
+      if (arrived) break;
+    }
+  }
+  return mask;
 }
 
 /**
@@ -174,45 +290,34 @@ function hasJambs(layers: Layers, size: Size, door: RoomDoor): boolean {
           [door.x, door.y + 1],
         ];
   return jambs.every(
-    ([x, y]) =>
-      x < 0 || y < 0 || x >= size.w || y >= size.h || layers.blocking[y][x] !== 'void',
+    ([x, y]) => x < 0 || y < 0 || x >= size.w || y >= size.h || layers.blocking[y][x] !== 'void',
   );
 }
 
-function buildOnce(
+/**
+ * Stage two: breach the wall where the caller decided, then everything that
+ * depends on the room being enterable - water, dead space, markers.
+ *
+ * The interior is spent by this: its layers are written through.
+ */
+export function finishRoom(
+  interior: RoomInterior,
+  exits: Exit[],
   params: GenParams,
-  seed: number,
   meta: PrefabMeta,
 ): { doc: RoomDoc; resolved: ResolvedParams } {
-  const rng = mulberry32(seed);
-  // Rolled first, so a retry with seed + 1 also retries exits and densities.
-  const exits = pickExits(params, rng);
-  const resolved = resolveParams(params, rng, exits);
-  const size: Size = { w: params.size.w, h: params.size.h };
-  const layers = makeLayers(size.w, size.h);
+  const { size, layers } = interior;
+  const rng = mulberry32((interior.seed ^ FINISH_SALT) >>> 0);
+  const resolved: ResolvedParams = { ...interior.resolved, exits };
 
-  buildShell(layers, size);
-  const protectedArea = buildProtected(size, exits, rng, resolved);
-  // Styles that build sub-rooms report their doorways here.
-  const doors: RoomDoor[] = [];
-  STYLE_REGISTRY[resolved.style]({
-    size,
-    layers,
-    exits,
-    protectedMask: protectedArea.mask,
-    rng,
-    params,
-    resolved,
-    doors,
-  });
+  const protectedMask = openExits(layers, size, exits);
+  for (const [x0, y0, x1, y1] of interior.protectedRects) {
+    markRect(protectedMask, size, x0, y0, x1, y1);
+  }
 
-  // Guaranteed routes are carved last so nothing can close them.
-  for (const [x0, y0, x1, y1] of protectedArea.rects) carveRect(layers, size, x0, y0, x1, y1);
-  carveExits(layers, size, exits);
-
-  liquidPass(layers, size, protectedArea.mask, rng, resolved);
+  liquidPass(layers, size, protectedMask, rng, resolved);
   // Nobody wants a doorway full of water: keep the door tiles dry.
-  for (const door of doors) layers.ground[door.y][door.x] = 'floor';
+  for (const door of interior.doors) layers.ground[door.y][door.x] = 'floor';
   sealPockets(layers, size, exits);
   // Sealing turns pockets into wall, so the drying has to come after it.
   dryUnderBlocking(layers, size);
@@ -227,9 +332,10 @@ function buildOnce(
       meta: { ...meta, role: params.roomRole },
       exits,
       // A doorway that the pocket pass walled off is no longer a doorway, and
-      // neither is one whose jambs went with it - the exit aprons are carved
-      // after the style has run and can take the wall a door was hung in.
-      doors: doors.filter((d) => layers.blocking[d.y][d.x] === 'void' && hasJambs(layers, size, d)),
+      // neither is one whose jambs went with it.
+      doors: interior.doors.filter(
+        (d) => layers.blocking[d.y][d.x] === 'void' && hasJambs(layers, size, d),
+      ),
       layers,
       markers,
     },
@@ -237,12 +343,39 @@ function buildOnce(
   };
 }
 
+/**
+ * Pin each exit to an offset the layout offered, so it opens into a room
+ * rather than into rock. Only the offset is taken from the interior: how many
+ * exits there are, on which sides and of what kind stays with the caller.
+ */
+export function snapExitsToOpenings(exits: Exit[], openings: Openings): Exit[] {
+  return exits.map((exit) => {
+    const offered = openings[exit.side].filter((o) => o !== exit.offset);
+    if (openings[exit.side].includes(exit.offset) || offered.length === 0) return exit;
+    // The nearest one to what was asked for, so a pinned offset still means
+    // something: on a map the two rooms either side have already agreed.
+    let best = offered[0];
+    for (const candidate of offered) {
+      if (Math.abs(candidate - exit.offset) < Math.abs(best - exit.offset)) best = candidate;
+    }
+    return { ...exit, offset: best };
+  });
+}
+
 /** Generate, validate, and retry with seed + 1 until the room passes. */
 export function generateRoom(params: GenParams, seed: number, meta: PrefabMeta): GenResult {
   let fallback: GenResult | null = null;
   for (let attempt = 0; attempt < MAX_GEN_ATTEMPTS; attempt++) {
     const trySeed = (seed + attempt) >>> 0;
-    const { doc, resolved } = buildOnce(params, trySeed, meta);
+    const interior = buildInterior(params, trySeed);
+    // One room on its own answers to nobody, so it takes the offsets its own
+    // layout offers. On a map the offsets are settled between neighbours first.
+    const rng = mulberry32((trySeed ^ EXIT_SALT) >>> 0);
+    const rolled = pickExits(params, rng);
+    // A pinned offset is somebody else's decision - on a map the room next door
+    // has agreed to it - so only a rolled one is moved onto an opening.
+    const exits = params.exits.auto ? snapExitsToOpenings(rolled, interior.openings) : rolled;
+    const { doc, resolved } = finishRoom(interior, exits, params, meta);
     const report = validateRoom(doc);
     const result: GenResult = { doc, resolved, seed: trySeed, attempts: attempt + 1, report };
     if (report.ok) return result;

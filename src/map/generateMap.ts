@@ -1,4 +1,4 @@
-import type { ExitSide, Markers, RoomRole, Size } from '../types/prefab';
+import type { Exit, ExitSide, Markers, RoomRole, Size } from '../types/prefab';
 import type { PrefabMeta, RoomDoc } from '../types/editor';
 import { emptyMarkers } from '../types/editor';
 import { mulberry32, type Rng } from '../core/rng';
@@ -6,8 +6,9 @@ import { makeLayers } from '../core/grid';
 import { floodFill } from '../core/floodfill';
 import { passabilityMask } from '../core/passability';
 import { EXIT_WIDTH, GATE_WIDTH } from '../gen/constants';
-import { generateRoom } from '../gen/generate';
+import { buildInterior, finishRoom } from '../gen/generate';
 import { defaultParams, type ExitConfig, type GenParams } from '../gen/params';
+import { validateRoom } from '../validate/validate';
 import { erodeOuterRock, syncRoomsToMap } from './rock';
 import { assignFlavours, flavourClashes } from './variety';
 import type { CheckResult } from '../validate/rules';
@@ -15,7 +16,6 @@ import {
   MAX_CELL,
   MAX_MAP_ATTEMPTS,
   MIN_CELL,
-  MIXED_PROFILE_ID,
   type MapDoc,
   type MapLink,
   type MapParams,
@@ -24,6 +24,9 @@ import {
   type MapResult,
   type PlacedRoom,
 } from './types';
+
+/** Layouts one room may try before the whole map is rerolled. */
+const MAX_ROOM_RETRIES = 8;
 
 /**
  * A cell of the room grid, before its interior exists. Doors are decided here,
@@ -236,24 +239,9 @@ function buildOnce(params: MapParams, seed: number, meta: PrefabMeta): MapResult
   }
   const wanted = edges.filter((e) => chosen.has(key(e)));
 
-  const links: MapLink[] = [];
-  for (const edge of wanted) {
-    const a = grid.cells[edge.a];
-    const b = grid.cells[edge.b];
-    const offsets = doorOffsets(a, b, edge.side, rng);
-    if (!offsets) continue;
-    const [offsetA, offsetB] = offsets;
-    a.doors[edge.side] = { offset: offsetA, width: EXIT_WIDTH };
-    b.doors[opposite(edge.side)] = { offset: offsetB, width: EXIT_WIDTH };
-    links.push({
-      from: edge.a,
-      to: edge.b,
-      side: edge.side,
-      tiles: doorTiles(a, edge.side, offsetA),
-    });
-  }
-
-  // 2. Gates: the way in, and the way out of the final arena, both on the rim.
+  // 2. Roles and gates: the way in, and the way out of the final arena, both on
+  //    the rim. Decided before the rooms exist, since a room is built to its
+  //    role and the gates only need to know which side faces outwards.
   const rim = rimCells(grid);
   if (rim.length < 2) return null;
   const entranceCell = rng.pick(rim);
@@ -280,8 +268,79 @@ function buildOnce(params: MapParams, seed: number, meta: PrefabMeta): MapResult
     }
   }
 
-  const gatePlans: Array<{ kind: 'entrance' | 'exit'; cell: Cell; side: ExitSide; offset: number }> =
-    [];
+  // 3. Every room's interior, built before it knows where its doors go. What
+  //    comes back is a layout plus the offsets along each wall where an opening
+  //    would land straight in a chamber - which is what the doors are chosen
+  //    from below, so you walk from room into room rather than down a stub of
+  //    corridor dug to meet you.
+  //
+  //    Subbiome, style and tightness are laid out across the whole grid at once
+  //    rather than rolled per room, so no two rooms you can walk between are
+  //    the same kind of space and every option gets its share of the map.
+  const flavours = assignFlavours(grid.cells, grid.cols, rng, params.profile);
+  const base = defaultParams();
+  const roomParams = grid.cells.map((c): GenParams => {
+    const flavour = flavours[c.index];
+    return {
+      ...base,
+      size: { w: c.w, h: c.h },
+      roomRole: c.role,
+      profile: flavour.profile,
+      style: { auto: false, value: flavour.style },
+      claustrophobia: { auto: false, value: flavour.tightness },
+      minSubRoom: params.minSubRoom,
+      exits: { auto: false, sides: {} as Record<ExitSide, ExitConfig> },
+      markers: { ...params.markers },
+    };
+  });
+  const seeds = grid.cells.map(() => rng.int(1, 0x3fffffff));
+  const interiors = grid.cells.map((c) => buildInterior(roomParams[c.index], seeds[c.index]));
+
+  /** Where a room offers an opening on one side, in map tiles. */
+  const offeredBy = (cell: Cell, side: ExitSide): number[] =>
+    interiors[cell.index].openings[side].map(
+      (offset) => offset + (side === 'n' || side === 's' ? cell.x : cell.y),
+    );
+
+  const links: MapLink[] = [];
+  for (const edge of wanted) {
+    const a = grid.cells[edge.a];
+    const b = grid.cells[edge.b];
+    // A door is one tile of the wall they share, so both rooms have to offer
+    // it. Where they do not, the door goes anywhere it fits and the rooms dig
+    // the last tile or two to meet it.
+    const shared = new Set(offeredBy(b, opposite(edge.side)));
+    const agreed = offeredBy(a, edge.side).filter((offset) => shared.has(offset));
+    let offsetA: number;
+    let offsetB: number;
+    const bothOffered = agreed.length > 0;
+    if (bothOffered) {
+      const at = rng.pick(agreed);
+      offsetA = at - (edge.side === 'n' || edge.side === 's' ? a.x : a.y);
+      offsetB = at - (edge.side === 'n' || edge.side === 's' ? b.x : b.y);
+    } else {
+      const offsets = doorOffsets(a, b, edge.side, rng);
+      if (!offsets) continue;
+      [offsetA, offsetB] = offsets;
+    }
+    a.doors[edge.side] = { offset: offsetA, width: EXIT_WIDTH };
+    b.doors[opposite(edge.side)] = { offset: offsetB, width: EXIT_WIDTH };
+    links.push({
+      from: edge.a,
+      to: edge.b,
+      side: edge.side,
+      tiles: doorTiles(a, edge.side, offsetA),
+      agreed: bothOffered,
+    });
+  }
+
+  const gatePlans: Array<{
+    kind: 'entrance' | 'exit';
+    cell: Cell;
+    side: ExitSide;
+    offset: number;
+    agreed: boolean;
+  }> = [];
   for (const [kind, c] of [
     ['entrance', entranceCell],
     ['exit', exitCell],
@@ -289,65 +348,55 @@ function buildOnce(params: MapParams, seed: number, meta: PrefabMeta): MapResult
     const side = outwardSide(grid, c);
     if (!side) return null;
     const span = side === 'n' || side === 's' ? c.w : c.h;
-    const offset = Math.max(
-      1,
-      Math.min(span - GATE_WIDTH - 1, Math.floor(span / 2) + rng.int(-2, 2)),
-    );
+    // A gate answers to nobody outside, so it takes an opening the room offers
+    // and only falls back to the middle of the wall when there is none.
+    const offered = interiors[c.index].openings[side];
+    const offset =
+      offered.length > 0
+        ? rng.pick(offered)
+        : Math.max(1, Math.min(span - GATE_WIDTH - 1, Math.floor(span / 2) + rng.int(-2, 2)));
     c.doors[side] = { offset, width: GATE_WIDTH };
-    gatePlans.push({ kind, cell: c, side, offset });
+    gatePlans.push({ kind, cell: c, side, offset, agreed: offered.length > 0 });
   }
 
-  // 3. Rooms, each generated with every door of its cell already pinned.
-  //    Subbiome, style and tightness are laid out across the whole grid at once
-  //    rather than rolled per room, so no two rooms you can walk between are
-  //    the same kind of space and every option gets its share of the map.
-  const flavours = assignFlavours(
-    grid.cells,
-    grid.cols,
-    rng,
-    params.profile === MIXED_PROFILE_ID ? null : params.profile,
-  );
-  const base = defaultParams();
+  // 4. Now that every door is settled, breach the walls and finish each room.
   const rooms: PlacedRoom[] = [];
   for (const c of grid.cells) {
-    const sides = {} as Record<ExitSide, ExitConfig>;
+    const exits: Exit[] = [];
     for (const side of ['n', 'e', 's', 'w'] as ExitSide[]) {
       const door = c.doors[side];
-      sides[side] = {
-        enabled: door !== undefined,
-        width: (door?.width ?? EXIT_WIDTH) as ExitConfig['width'],
+      if (!door) continue;
+      exits.push({
+        side,
+        offset: door.offset,
+        width: door.width as Exit['width'],
         type: rng.chance(0.55) ? 'open' : 'door',
-        offset: door?.offset ?? null,
-      };
+      });
     }
-    const flavour = flavours[c.index];
-    const profile = flavour.profile;
-    const roomParams: GenParams = {
-      ...base,
-      size: { w: c.w, h: c.h },
-      roomRole: c.role,
-      profile,
-      style: { auto: false, value: flavour.style },
-      claustrophobia: { auto: false, value: flavour.tightness },
-      exits: { auto: false, sides },
-      markers: { ...params.markers },
-    };
-    const result = generateRoom(roomParams, rng.int(1, 0x3fffffff), {
-      ...meta,
-      id: `${meta.id}_r${c.row}c${c.col}`,
-    });
-    if (!result.report.ok) return null;
+    const roomMeta = { ...meta, id: `${meta.id}_r${c.row}c${c.col}` };
+    let interior = interiors[c.index];
+    let finished = finishRoom(interior, exits, roomParams[c.index], roomMeta);
+    let report = validateRoom(finished.doc);
+    // A room that will not hold together gets another layout - with the doors
+    // it has already been given, since the rooms next door are counting on
+    // them. Rebuilding cannot move an agreed offset, only what is behind it.
+    for (let retry = 1; !report.ok && retry <= MAX_ROOM_RETRIES; retry++) {
+      interior = buildInterior(roomParams[c.index], (seeds[c.index] + retry) >>> 0);
+      finished = finishRoom(interior, exits, roomParams[c.index], roomMeta);
+      report = validateRoom(finished.doc);
+    }
+    if (!report.ok) return null;
     rooms.push({
       index: c.index,
       col: c.col,
       row: c.row,
-      profile,
+      profile: roomParams[c.index].profile,
       x: c.x,
       y: c.y,
-      doc: result.doc,
+      doc: finished.doc,
       role: c.role,
-      style: result.resolved.style,
-      claustrophobia: result.resolved.claustrophobia,
+      style: finished.resolved.style,
+      claustrophobia: finished.resolved.claustrophobia,
     });
   }
 
@@ -404,7 +453,7 @@ function buildOnce(params: MapParams, seed: number, meta: PrefabMeta): MapResult
           break;
       }
     }
-    return { kind: plan.kind, room: c.index, side: plan.side, tiles };
+    return { kind: plan.kind, room: c.index, side: plan.side, tiles, agreed: plan.agreed };
   });
 
   // 6. The rock the dungeon was cut from gets an irregular outside, or the map

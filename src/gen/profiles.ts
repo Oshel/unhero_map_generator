@@ -37,20 +37,6 @@ export const SUBBIOME_PROFILES: SubbiomeProfile[] = [
     styleWeights: { rooms_in_room: 8, organic: 1 },
     obstacleDensity: [20, 55],
   },
-  {
-    id: 'halls',
-    label: 'Halls - open, room to fight',
-    claustrophobia: [5, 35],
-    styleWeights: { open: 6, rooms_in_room: 2 },
-    obstacleDensity: [10, 45],
-  },
-  {
-    id: 'caves',
-    label: 'Caves - irregular, uneven',
-    claustrophobia: [35, 80],
-    styleWeights: { organic: 7, open: 1 },
-    obstacleDensity: [25, 70],
-  },
 ];
 
 export const DEFAULT_PROFILE_ID = 'generic';

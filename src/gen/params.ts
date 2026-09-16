@@ -1,9 +1,35 @@
 import type { Exit, ExitSide, ExitType, ExitWidth, RoomRole, Size } from '../types/prefab';
 import type { Rng } from '../core/rng';
-import { EXIT_WIDTH, MAX_GEN_ATTEMPTS, MAX_SIZE, MIN_SIZE } from './constants';
+import {
+  DEFAULT_SUBROOM_FLOOR,
+  EXIT_WIDTH,
+  MAX_GEN_ATTEMPTS,
+  MAX_SIZE,
+  MAX_SUBROOM_FLOOR,
+  MIN_SIZE,
+  MIN_SUBROOM_FLOOR,
+} from './constants';
 import { DEFAULT_PROFILE_ID, profileById, type SubbiomeProfile } from './profiles';
 
-export { EXIT_WIDTH, MAX_GEN_ATTEMPTS, MAX_SIZE, MIN_SIZE };
+export {
+  DEFAULT_SUBROOM_FLOOR,
+  EXIT_WIDTH,
+  MAX_GEN_ATTEMPTS,
+  MAX_SIZE,
+  MAX_SUBROOM_FLOOR,
+  MIN_SIZE,
+  MIN_SUBROOM_FLOOR,
+};
+
+/**
+ * The panel offers a range; anything outside it would break the style. A value
+ * that is not a number at all - an older saved prefab, a caller that predates
+ * the setting - takes the default rather than poisoning every size with NaN.
+ */
+export function clampSubRoom(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_SUBROOM_FLOOR;
+  return Math.max(MIN_SUBROOM_FLOOR, Math.min(MAX_SUBROOM_FLOOR, Math.round(value)));
+}
 
 export type LayoutStyle = 'open' | 'rooms_in_room' | 'organic';
 
@@ -65,6 +91,11 @@ export interface GenParams {
   /** 0 open halls .. 100 corridor warren. */
   claustrophobia: AutoNumber;
   style: { auto: boolean; value: LayoutStyle };
+  /**
+   * Smallest sub-room a subtractive style may place, counted in floor tiles a
+   * side. Bigger means fewer, roomier chambers; smaller means a warren.
+   */
+  minSubRoom: number;
   water: LiquidParams;
   pits: LiquidParams;
   markers: MarkerCounts;
@@ -98,6 +129,7 @@ export function defaultParams(): GenParams {
     profile: DEFAULT_PROFILE_ID,
     claustrophobia: { auto: true, value: 60 },
     style: { auto: true, value: 'rooms_in_room' },
+    minSubRoom: DEFAULT_SUBROOM_FLOOR,
     water: { auto: true, enabled: false, density: 15 },
     pits: { auto: true, enabled: false, density: 15 },
     markers: { spawn: 4, loot: 2, prop: 6 },

@@ -1,14 +1,14 @@
 import type { Rng } from '../core/rng';
 import type { LayoutStyle } from '../gen/params';
 import { LAYOUT_STYLES } from '../gen/params';
-import { profileById, SUBBIOME_PROFILES } from '../gen/profiles';
+import { profileById } from '../gen/profiles';
 
 /**
  * What each room on the grid is made of, decided for the whole map at once.
  *
- * Rolling every room on its own gives runs of the same thing - three big open
- * halls in a row, and the dungeon reads as one room repeated. So the flavours
- * are laid out as a graph colouring instead: neighbours differ in subbiome, in
+ * Rolling every room on its own gives runs of the same thing - three rooms of
+ * the same shape in a row, and the dungeon reads as one room repeated. So the
+ * flavours are laid out as a graph colouring instead: neighbours differ in
  * layout style and in how tight they are, while each option still gets about
  * the same number of rooms. Walking the dungeon then means a different kind of
  * space behind every door.
@@ -94,39 +94,6 @@ function cellCost<T>(
 }
 
 /**
- * Deal the options out evenly, then trade rooms between cells until no two
- * neighbours match. Trading rather than reassigning is what keeps the counts
- * even: a swap moves two rooms and changes no tally.
- */
-function evenColouring<T>(total: number, cols: number, rows: number, options: T[], rng: Rng): T[] {
-  const values = rng.shuffle(Array.from({ length: total }, (_, i) => options[i % options.length]));
-  const indices = values.map((_, i) => i);
-  const cost = (i: number): number => cellCost(values, i, values[i], cols, rows);
-  for (let pass = 0; pass < 24; pass++) {
-    let clashes = 0;
-    for (const i of rng.shuffle(indices)) {
-      const before = cost(i);
-      if (before === 0) continue;
-      let swapped = false;
-      // Try partners in a random order and take the first trade that helps.
-      for (const j of rng.shuffle(indices)) {
-        if (values[j] === values[i]) continue;
-        const wasJ = cost(j);
-        [values[i], values[j]] = [values[j], values[i]];
-        if (cost(i) + cost(j) < before + wasJ) {
-          swapped = true;
-          break;
-        }
-        [values[i], values[j]] = [values[j], values[i]];
-      }
-      if (!swapped) clashes++;
-    }
-    if (clashes === 0) break;
-  }
-  return values;
-}
-
-/**
  * Pick per room from a list that differs room to room - a style has to be one
  * the subbiome actually uses. Greedy in a random order, then repair passes,
  * with a nudge towards whatever is currently under-used so the map does not
@@ -197,26 +164,19 @@ function constrainedColouring<T>(
 }
 
 /**
- * A flavour per cell of the room grid, in cell-index order.
- *
- * `fixedProfile` pins every room to one subbiome (anything but Mixed); style
- * and tightness still alternate, so even a single-subbiome dungeon never runs
- * the same kind of room twice in a row.
+ * A flavour per cell of the room grid, in cell-index order. Every room of a map
+ * belongs to the same subbiome; what alternates is the style and the tightness,
+ * so the dungeon never runs the same kind of room twice in a row.
  */
 export function assignFlavours(
   cells: readonly Cellish[],
   cols: number,
   rng: Rng,
-  fixedProfile: string | null,
+  profile: string,
 ): RoomFlavour[] {
   const total = cells.length;
   const rows = Math.max(1, Math.ceil(total / cols));
-  const ids = SUBBIOME_PROFILES.map((p) => p.id);
-
-  const profiles =
-    fixedProfile === null
-      ? evenColouring(total, cols, rows, ids, rng)
-      : new Array<string>(total).fill(fixedProfile);
+  const profiles = new Array<string>(total).fill(profile);
 
   // A style the room's own subbiome would never roll would undo the subbiome,
   // so the candidates are that profile's own table.

@@ -7,7 +7,6 @@ import {
   MAP_SIZE_PRESETS,
   MAX_MAP,
   MIN_MAP,
-  MIXED_PROFILE_ID,
   type MapParams,
 } from '../map/types';
 import { profileById, SUBBIOME_PROFILES } from '../gen/profiles';
@@ -18,6 +17,9 @@ import {
   SIZE_PRESETS,
   type GenParams,
   type LayoutStyle,
+  clampSubRoom,
+  MAX_SUBROOM_FLOOR,
+  MIN_SUBROOM_FLOOR,
 } from '../gen/params';
 import { Field, NumberField, Section, Segmented, Select, Slider, TextField, Toggle } from './controls';
 
@@ -201,6 +203,21 @@ export function LeftPanel(props: LeftPanelProps) {
             ) : (
               <p className="note">The seed picks one box and every room on the grid uses it.</p>
             )}
+            <Field label="Smallest sub-room" hint="floor tiles a side">
+              <NumberField
+                value={props.mapParams.minSubRoom}
+                min={MIN_SUBROOM_FLOOR}
+                max={MAX_SUBROOM_FLOOR}
+                onChange={(v) =>
+                  props.setMapParams((prev) => ({ ...prev, minSubRoom: clampSubRoom(v) }))
+                }
+              />
+            </Field>
+            <p className="note">
+              Rooms cut into sub-rooms never go below this. {MIN_SUBROOM_FLOOR} is a warren of
+              cupboards, {MAX_SUBROOM_FLOOR} leaves a handful of halls. Styles that scatter obstacles
+              rather than cut rooms ignore it.
+            </p>
             <Field label="Extra doors" hint="beyond the minimum that connects everything">
               <Slider
                 value={props.mapParams.loopiness}
@@ -219,19 +236,15 @@ export function LeftPanel(props: LeftPanelProps) {
             <Field label="Profile">
               <Select<string>
                 value={props.mapParams.profile}
-                options={[
-                  { value: MIXED_PROFILE_ID, label: 'Mixed - every subbiome, shuffled' },
-                  ...SUBBIOME_PROFILES.map((p) => ({ value: p.id, label: p.label })),
-                ]}
+                options={SUBBIOME_PROFILES.map((p) => ({ value: p.id, label: p.label }))}
                 onChange={(v) => props.setMapParams((prev) => ({ ...prev, profile: v }))}
               />
             </Field>
             <p className="note">
-              Subbiome, layout style and claustrophobia are laid out across the whole grid at
-              once, not rolled room by room: no two rooms you can walk between are the same kind of
-              space, and each option still gets about the same share of the map. On Mixed the
-              subbiome changes at every door too; pinned to one subbiome, the style and the
-              tightness still alternate. The dungeon gets exactly one entrance and one exit, both
+              Every room of a map belongs to this subbiome. Layout style and claustrophobia are
+              laid out across the whole grid at once rather than rolled room by room: no two rooms
+              you can walk between are the same kind of space, and each option still gets about the
+              same share of the map. The dungeon gets exactly one entrance and one exit, both
               running to the map edge, and the exit always sits in the final arena.
             </p>
           </Section>
@@ -350,6 +363,14 @@ export function LeftPanel(props: LeftPanelProps) {
             />
           </Field>
         )}
+        <Field label="Smallest sub-room" hint="floor tiles a side">
+          <NumberField
+            value={params.minSubRoom}
+            min={MIN_SUBROOM_FLOOR}
+            max={MAX_SUBROOM_FLOOR}
+            onChange={(v) => setParams((p) => ({ ...p, minSubRoom: clampSubRoom(v) }))}
+          />
+        </Field>
         <Toggle
           checked={params.claustrophobia.auto}
           label="Claustrophobia from the profile"

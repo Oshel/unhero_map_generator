@@ -7,10 +7,10 @@
  */
 import { defaultMeta } from '../src/types/editor';
 import { generateRoom } from '../src/gen/generate';
-import { LAYOUT_STYLES, SIZE_PRESETS, defaultParams } from '../src/gen/params';
+import { DEFAULT_SUBROOM_FLOOR, LAYOUT_STYLES, SIZE_PRESETS, defaultParams } from '../src/gen/params';
 import { ROOM_ROLES } from '../src/types/prefab';
 import type { Layers } from '../src/types/prefab';
-import { SUBBIOME_PROFILES } from '../src/gen/profiles';
+import { DEFAULT_PROFILE_ID, SUBBIOME_PROFILES } from '../src/gen/profiles';
 import { generateMap, mapFixtures, shortestRoute } from '../src/map/generateMap';
 import { passabilityMask } from '../src/core/passability';
 import { MAP_SIZE_PRESETS } from '../src/map/types';
@@ -370,7 +370,8 @@ for (const style of LAYOUT_STYLES) {
       {
         size: { w: 160, h: 120 },
         roomSize: { mode: 'random' as const, w: 24, h: 20 },
-        profile: 'mixed',
+        profile: DEFAULT_PROFILE_ID,
+        minSubRoom: DEFAULT_SUBROOM_FLOOR,
         loopiness: 30,
         markers: { spawn: 3, loot: 2, prop: 6 },
       },
@@ -427,13 +428,14 @@ for (const style of LAYOUT_STYLES) {
   let rooms = 0;
   let links = 0;
   for (const preset of MAP_SIZE_PRESETS) {
-    for (const profile of ['catacombs', 'halls', 'caves', 'generic']) {
+    for (const profile of SUBBIOME_PROFILES.map((p) => p.id)) {
       for (let i = 0; i < 6; i++) {
         const result = generateMap(
           {
             size: preset.size,
             roomSize: { mode: 'fixed' as const, w: 24, h: 18 },
             profile,
+            minSubRoom: DEFAULT_SUBROOM_FLOOR,
             loopiness: 25,
             markers: { spawn: 3, loot: 1, prop: 4 },
           },
@@ -453,12 +455,12 @@ for (const style of LAYOUT_STYLES) {
     }
   }
   const a = generateMap(
-    { size: MAP_SIZE_PRESETS[1].size, roomSize: { mode: 'fixed' as const, w: 24, h: 18 }, profile: 'catacombs', loopiness: 25, markers: { spawn: 3, loot: 1, prop: 4 } },
+    { size: MAP_SIZE_PRESETS[1].size, roomSize: { mode: 'fixed' as const, w: 24, h: 18 }, profile: 'catacombs', minSubRoom: DEFAULT_SUBROOM_FLOOR, loopiness: 25, markers: { spawn: 3, loot: 1, prop: 4 } },
     4242,
     defaultMeta(),
   );
   const b = generateMap(
-    { size: MAP_SIZE_PRESETS[1].size, roomSize: { mode: 'fixed' as const, w: 24, h: 18 }, profile: 'catacombs', loopiness: 25, markers: { spawn: 3, loot: 1, prop: 4 } },
+    { size: MAP_SIZE_PRESETS[1].size, roomSize: { mode: 'fixed' as const, w: 24, h: 18 }, profile: 'catacombs', minSubRoom: DEFAULT_SUBROOM_FLOOR, loopiness: 25, markers: { spawn: 3, loot: 1, prop: 4 } },
     4242,
     defaultMeta(),
   );
@@ -476,17 +478,18 @@ for (const style of LAYOUT_STYLES) {
     a.doc.portals.filter((p) => p.kind === 'exit').length === 1 &&
     a.doc.rooms[a.doc.exitRoom].role === 'arena';
 
-  // Mixed maps have to actually mix.
-  const mixed = generateMap(
-    { size: MAP_SIZE_PRESETS[2].size, roomSize: { mode: 'fixed' as const, w: 24, h: 18 }, profile: 'mixed', loopiness: 25, markers: { spawn: 3, loot: 1, prop: 4 } },
+  // Every room of a map belongs to the subbiome that was asked for.
+  const oneBiome = generateMap(
+    { size: MAP_SIZE_PRESETS[2].size, roomSize: { mode: 'fixed' as const, w: 24, h: 18 }, profile: 'catacombs', minSubRoom: DEFAULT_SUBROOM_FLOOR, loopiness: 25, markers: { spawn: 3, loot: 1, prop: 4 } },
     777,
     defaultMeta(),
   );
-  const profiles = new Set(mixed.doc.rooms.map((r) => r.profile));
+  const profiles = new Set(oneBiome.doc.rooms.map((r) => r.profile));
+  const styles = new Set(oneBiome.doc.rooms.map((r) => r.style));
   console.log(
-    `mixed profiles: ${profiles.size} different over ${mixed.doc.rooms.length} rooms (${[...profiles].join(', ')})`,
+    `subbiome: ${[...profiles].join(', ')} over ${oneBiome.doc.rooms.length} rooms, ${styles.size} layout style(s) among them`,
   );
-  if (profiles.size < 2) failures++;
+  if (profiles.size !== 1 || !profiles.has('catacombs') || styles.size < 2) failures++;
 
   console.log(
     `maps: pass ${ok}/${runs}, avg ${(rooms / runs).toFixed(1)} rooms and ${(links / runs).toFixed(1)} corridors, avg attempts ${(attempts / runs).toFixed(2)}, repeatable: ${repeatable ? 'yes' : 'NO'}, one way in and out through an arena: ${hasWayInAndOut ? 'yes' : 'NO'}`,
@@ -509,7 +512,8 @@ for (const style of LAYOUT_STYLES) {
         {
           size: MAP_SIZE_PRESETS[2].size,
           roomSize: { mode: 'fixed', w, h },
-          profile: 'mixed',
+          profile: DEFAULT_PROFILE_ID,
+          minSubRoom: DEFAULT_SUBROOM_FLOOR,
           loopiness: 25,
           markers: { spawn: 2, loot: 1, prop: 3 },
         },
@@ -533,7 +537,8 @@ for (const style of LAYOUT_STYLES) {
     {
       size: { w: 240, h: 180 },
       roomSize: { mode: 'fixed', w: 24, h: 18 },
-      profile: 'mixed',
+      profile: DEFAULT_PROFILE_ID,
+      minSubRoom: DEFAULT_SUBROOM_FLOOR,
       loopiness: 25,
       markers: { spawn: 2, loot: 1, prop: 3 },
     },
@@ -552,7 +557,9 @@ for (const style of LAYOUT_STYLES) {
   let misaligned = 0;
   for (const room of filled.doc.rooms) {
     for (const exit of room.doc.exits) {
-      if (exit.width !== 1 && exit.width !== 2) wrongDoor++;
+      // The width is typed to the legal set; this guards the data, not the type.
+      const width: number = exit.width;
+      if (width !== 1 && width !== 2) wrongDoor++;
     }
   }
   for (const link of filled.doc.links) {
@@ -728,6 +735,75 @@ for (const style of LAYOUT_STYLES) {
   if (stubs / doors > 0.1) failures++;
 }
 
+// The smallest sub-room is a setting, so it has to show: raise the floor and the
+// same room has to come back with fewer, larger chambers.
+{
+  const doorsFor = (minSubRoom: number): number => {
+    let doors = 0;
+    const runs = 12;
+    for (let i = 0; i < runs; i++) {
+      const params = {
+        ...defaultParams(),
+        size: { w: 48, h: 32 },
+        style: { auto: false as const, value: 'rooms_in_room' as const },
+        claustrophobia: { auto: false as const, value: 60 },
+        minSubRoom,
+      };
+      doors += generateRoom(params, 9100 + i * 151, defaultMeta()).doc.doors.length;
+    }
+    return doors / runs;
+  };
+  const sizes = [2, 3, 6, 10];
+  const counts = sizes.map(doorsFor);
+  console.log(
+    `smallest sub-room: ${sizes.map((n, i) => `${n}x${n}: ${counts[i].toFixed(1)} doors`).join(' | ')}`,
+  );
+  let monotonic = true;
+  for (let i = 1; i < counts.length; i++) if (counts[i] >= counts[i - 1]) monotonic = false;
+  if (!monotonic) {
+    console.log('  BROKEN: a bigger minimum must leave fewer sub-rooms');
+    failures++;
+  }
+}
+
+// Doors are supposed to land where both rooms already have somewhere to stand,
+// so you walk from room into room rather than down a passage dug to meet you.
+{
+  let agreed = 0;
+  let dug = 0;
+  let gatesAgreed = 0;
+  let gates = 0;
+  for (let i = 0; i < 8; i++) {
+    const map = generateMap(
+      {
+        size: { w: 160, h: 120 },
+        roomSize: { mode: 'random' as const, w: 24, h: 20 },
+        profile: DEFAULT_PROFILE_ID,
+        minSubRoom: DEFAULT_SUBROOM_FLOOR,
+        loopiness: 25,
+        markers: { spawn: 3, loot: 2, prop: 6 },
+      },
+      2200 + i * 613,
+      defaultMeta(),
+    ).doc;
+    for (const link of map.links) {
+      if (link.agreed) agreed++;
+      else dug++;
+    }
+    for (const portal of map.portals) {
+      gates++;
+      if (portal.agreed) gatesAgreed++;
+    }
+  }
+  const share = agreed / (agreed + dug);
+  console.log(
+    `doors onto a chamber both rooms offered: ${agreed}/${agreed + dug} (${(share * 100).toFixed(0)}%), gates ${gatesAgreed}/${gates}`,
+  );
+  // Caves have rock against the wall and offer almost nothing, so a third is
+  // what a mixed map can manage; well under that means the openings are broken.
+  if (share < 0.25) failures++;
+}
+
 // There has to be a way through: the entrance and the exit are joined by a walk
 // the player can actually take, and it is at most as long as the map is big.
 {
@@ -740,7 +816,8 @@ for (const style of LAYOUT_STYLES) {
       {
         size: { w: 160, h: 120 },
         roomSize: { mode: 'random' as const, w: 24, h: 20 },
-        profile: 'mixed',
+        profile: DEFAULT_PROFILE_ID,
+        minSubRoom: DEFAULT_SUBROOM_FLOOR,
         loopiness: 30,
         markers: { spawn: 3, loot: 2, prop: 6 },
       },
@@ -778,6 +855,7 @@ for (const style of LAYOUT_STYLES) {
       size: { w: 160, h: 120 },
       roomSize: { mode: 'fixed', w: 20, h: 20 },
       profile: 'catacombs',
+      minSubRoom: DEFAULT_SUBROOM_FLOOR,
       loopiness: 30,
       markers: { spawn: 2, loot: 1, prop: 3 },
     },

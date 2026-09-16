@@ -28,6 +28,11 @@ export interface MapLink {
   side: ExitSide;
   /** The door tiles in map coordinates - one in each room, side by side. */
   tiles: Array<[number, number]>;
+  /**
+   * True when both rooms already had something you can stand in against the
+   * wall here, so the doorway is a hole and nothing had to be dug to reach it.
+   */
+  agreed: boolean;
 }
 
 /** The way into the dungeon and the way out: one of each, both to the map edge. */
@@ -36,6 +41,8 @@ export interface MapPortal {
   room: number;
   side: ExitSide;
   tiles: Array<[number, number]>;
+  /** The room had a chamber against this wall, so the gate opens straight in. */
+  agreed: boolean;
 }
 
 export interface MapDoc {
@@ -68,9 +75,6 @@ export interface MapResult {
   report: MapReport;
 }
 
-/** Profile id meaning "roll a different one for every room". */
-export const MIXED_PROFILE_ID = 'mixed';
-
 /** Room sizes on a map: one box for the whole grid, picked by you or by the seed. */
 export interface RoomSizing {
   mode: 'random' | 'fixed';
@@ -83,10 +87,12 @@ export interface MapParams {
   size: Size;
   /** The cell of the room grid. Every room on the map is this size. */
   roomSize: RoomSizing;
-  /** A profile id, or MIXED_PROFILE_ID to roll one per room. */
+  /** Subbiome profile id - see gen/profiles.ts. */
   profile: string;
   /** 0..100 - how many doors go in beyond the spanning tree. */
   loopiness: number;
+  /** Smallest sub-room inside a room, in floor tiles a side. */
+  minSubRoom: number;
   markers: { spawn: number; loot: number; prop: number };
 }
 

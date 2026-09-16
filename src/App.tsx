@@ -6,13 +6,15 @@ import { defaultParams, type GenParams, type ResolvedParams } from './gen/params
 import { generateRoom } from './gen/generate';
 import { generateMap, mapFixtures, mapToDoc, shortestRoute } from './map/generateMap';
 
-import { MAP_SIZE_PRESETS, MIXED_PROFILE_ID, type MapParams, type MapResult } from './map/types';
+import { MAP_SIZE_PRESETS, type MapParams, type MapResult } from './map/types';
 import { mapSummaryJson, mapToJson } from './io/exportMap';
 import { validateRoom } from './validate/validate';
 import { prefabToJson, toPrefab } from './io/exportPrefab';
 import { ImportError, parsePrefab } from './io/importPrefab';
 import { copyToClipboard, downloadText } from './io/download';
 import { loadTilesetFromFiles, type Tileset } from './render/tileset';
+import { DEFAULT_SUBROOM_FLOOR } from './gen/constants';
+import { DEFAULT_PROFILE_ID } from './gen/profiles';
 import { BASE_TILE_PX } from './render/palette';
 import { fitZoom } from './render/zoom';
 import { CanvasView } from './ui/CanvasView';
@@ -66,7 +68,8 @@ function defaultMapParams(): MapParams {
   return {
     size: { ...MAP_SIZE_PRESETS[1].size },
     roomSize: { mode: 'fixed', w: 24, h: 18 },
-    profile: MIXED_PROFILE_ID,
+    profile: DEFAULT_PROFILE_ID,
+    minSubRoom: DEFAULT_SUBROOM_FLOOR,
     loopiness: 25,
     markers: { spawn: 3, loot: 1, prop: 4 },
   };

@@ -1,4 +1,5 @@
 import type { RoomDoor, Size } from '../../types/prefab';
+import { clampSubRoom, type GenParams } from '../params';
 import { carveRect, exitAnchor } from '../outline';
 import type { StyleContext, StyleFn } from './context';
 
@@ -33,20 +34,39 @@ function tightness(ctx: StyleContext): number {
   return Math.max(0, Math.min(100, ctx.resolved.claustrophobia)) / 100;
 }
 
+/** How far a sub-room may be stretched or pulled back to sit flush on a wall. */
+const SNAP_TO_SHELL = 3;
+
 /**
- * The smallest sub-room worth having is three by three of floor. The rect here
- * is the outside of the room, wall ring included, so that is five by five.
+ * The panel asks for floor, the generator works in rects: a room of three by
+ * three floor tiles is a five by five rect once its wall ring is counted.
  */
-const MIN_ROOM_SIDE = 5;
+function minRoomSide(params: GenParams): number {
+  return clampSubRoom(params.minSubRoom) + 2;
+}
+
+/** Wall ring plus the smallest floor worth calling a room. */
+function bigEnough(
+  r: { x0: number; y0: number; x1: number; y1: number },
+  minSide: number,
+): boolean {
+  return r.x1 - r.x0 + 1 >= minSide && r.y1 - r.y0 + 1 >= minSide;
+}
 
 /** Sub-rooms get smaller and more numerous as the subbiome tightens. */
-function roomSizeRange(c: number): [number, number] {
-  const low = Math.max(MIN_ROOM_SIDE, Math.round(lerp(7, MIN_ROOM_SIDE, c)));
+function roomSizeRange(c: number, minSide: number): [number, number] {
+  const low = Math.max(minSide, Math.round(lerp(minSide + 2, minSide, c)));
   return [low, Math.max(low, Math.round(lerp(14, 9, c)))];
 }
 
+/**
+ * A sub-room may sit flush against the room's own shell: its wall ring is then
+ * that shell, which is what lets a map hang a door straight into the chamber
+ * instead of digging a passage to it. Only the interior is ever carved, so the
+ * shell itself stays whole.
+ */
 function insideInterior(size: Size, r: Rect): boolean {
-  return r.x0 >= 2 && r.y0 >= 2 && r.x1 <= size.w - 3 && r.y1 <= size.h - 3;
+  return r.x0 >= 0 && r.y0 >= 0 && r.x1 <= size.w - 1 && r.y1 <= size.h - 1;
 }
 
 /**
@@ -70,8 +90,13 @@ export const roomsInRoomStyle: StyleFn = (ctx) => {
     }
   }
 
+  /** Rock a doorway may be punched through: never the shell. */
   const isRock = (x: number, y: number): boolean =>
     x >= 1 && y >= 1 && x < size.w - 1 && y < size.h - 1 && layers.blocking[y][x] === 'wall';
+
+  /** Rock a room may be cut out of, the shell included - it is a wall too. */
+  const isSolid = (x: number, y: number): boolean =>
+    x >= 0 && y >= 0 && x < size.w && y < size.h && layers.blocking[y][x] === 'wall';
 
   const clear = (r: Rect, margin: number, attached?: Dir): boolean => {
     if (!insideInterior(size, r)) return false;
@@ -81,7 +106,7 @@ export const roomsInRoomStyle: StyleFn = (ctx) => {
     const right = r.x1 + (attached === 'w' ? 0 : margin);
     for (let y = top; y <= bottom; y++) {
       for (let x = left; x <= right; x++) {
-        if (!isRock(x, y)) return false;
+        if (!isSolid(x, y)) return false;
       }
     }
     return true;
@@ -180,7 +205,7 @@ export const roomsInRoomStyle: StyleFn = (ctx) => {
 
   // 4. Rooms, until nothing else fits. A room hangs off any floor tile - a
   //    corridor, or a room already placed - through a single doorway.
-  const [minSide, maxSide] = roomSizeRange(c);
+  const [minSide, maxSide] = roomSizeRange(c, minRoomSide(ctx.params));
   let deadEnds = 0;
   const pressure = (): number => Math.min(1, deadEnds / PRESSURE_SPAN);
   const roomSide = (): number =>
@@ -239,6 +264,24 @@ export const roomsInRoomStyle: StyleFn = (ctx) => {
         rect.y1 = rect.y0 + h - 1;
         door = { x: rect.x0, y: ay, axis: 'ew' };
         break;
+    }
+
+    // A room that stops a tile or two short of the room's own shell is snapped
+    // flush to it, and one that would overshoot is pulled back to it instead of
+    // being thrown away. A sub-room whose wall is the shell is a sub-room a map
+    // can hang a door on - that is the whole point of the openings.
+    const snapped: Rect = { ...rect };
+    if (dir !== 's' && snapped.y0 <= SNAP_TO_SHELL) snapped.y0 = 0;
+    if (dir !== 'n' && snapped.y1 >= size.h - 1 - SNAP_TO_SHELL) snapped.y1 = size.h - 1;
+    if (dir !== 'e' && snapped.x0 <= SNAP_TO_SHELL) snapped.x0 = 0;
+    if (dir !== 'w' && snapped.x1 >= size.w - 1 - SNAP_TO_SHELL) snapped.x1 = size.w - 1;
+    // Pulling an overshooting room back must not squeeze it out of existence:
+    // a rect narrower than its own wall ring has no interior to carve, and the
+    // carve would run backwards straight through the shell.
+    if (bigEnough(snapped, minSide) && clear(snapped, 0)) rect = snapped;
+    if (!bigEnough(rect, minSide)) {
+      deadEnds++;
+      continue;
     }
 
     // The doorway has to land in the room's own wall, and not in a corner of

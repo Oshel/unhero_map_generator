@@ -371,8 +371,7 @@ for (const style of LAYOUT_STYLES) {
         size: { w: 160, h: 120 },
         roomSize: { mode: 'random' as const, w: 24, h: 20 },
         profile: DEFAULT_PROFILE_ID,
-        minSubRoom: DEFAULT_SUBROOM_FLOOR,
-        loopiness: 30,
+        minSubRoom: DEFAULT_SUBROOM_FLOOR,        loopiness: 30,
         markers: { spawn: 3, loot: 2, prop: 6 },
       },
       5500 + i * 313,
@@ -435,8 +434,7 @@ for (const style of LAYOUT_STYLES) {
             size: preset.size,
             roomSize: { mode: 'fixed' as const, w: 24, h: 18 },
             profile,
-            minSubRoom: DEFAULT_SUBROOM_FLOOR,
-            loopiness: 25,
+            minSubRoom: DEFAULT_SUBROOM_FLOOR,            loopiness: 25,
             markers: { spawn: 3, loot: 1, prop: 4 },
           },
           900 + i * 313,
@@ -513,8 +511,7 @@ for (const style of LAYOUT_STYLES) {
           size: MAP_SIZE_PRESETS[2].size,
           roomSize: { mode: 'fixed', w, h },
           profile: DEFAULT_PROFILE_ID,
-          minSubRoom: DEFAULT_SUBROOM_FLOOR,
-          loopiness: 25,
+          minSubRoom: DEFAULT_SUBROOM_FLOOR,          loopiness: 25,
           markers: { spawn: 2, loot: 1, prop: 3 },
         },
         2400 + i * 131,
@@ -538,8 +535,7 @@ for (const style of LAYOUT_STYLES) {
       size: { w: 240, h: 180 },
       roomSize: { mode: 'fixed', w: 24, h: 18 },
       profile: DEFAULT_PROFILE_ID,
-      minSubRoom: DEFAULT_SUBROOM_FLOOR,
-      loopiness: 25,
+      minSubRoom: DEFAULT_SUBROOM_FLOOR,      loopiness: 25,
       markers: { spawn: 2, loot: 1, prop: 3 },
     },
     31337,
@@ -779,8 +775,7 @@ for (const style of LAYOUT_STYLES) {
         size: { w: 160, h: 120 },
         roomSize: { mode: 'random' as const, w: 24, h: 20 },
         profile: DEFAULT_PROFILE_ID,
-        minSubRoom: DEFAULT_SUBROOM_FLOOR,
-        loopiness: 25,
+        minSubRoom: DEFAULT_SUBROOM_FLOOR,        loopiness: 25,
         markers: { spawn: 3, loot: 2, prop: 6 },
       },
       2200 + i * 613,
@@ -817,8 +812,7 @@ for (const style of LAYOUT_STYLES) {
         size: { w: 160, h: 120 },
         roomSize: { mode: 'random' as const, w: 24, h: 20 },
         profile: DEFAULT_PROFILE_ID,
-        minSubRoom: DEFAULT_SUBROOM_FLOOR,
-        loopiness: 30,
+        minSubRoom: DEFAULT_SUBROOM_FLOOR,        loopiness: 30,
         markers: { spawn: 3, loot: 2, prop: 6 },
       },
       7700 + i * 197,
@@ -961,7 +955,7 @@ if (roundTrip !== json) failures++;
     pack.files.floor?.filter((f) => f === 'floor_damaged.png').length === 1 &&
     pack.files.obstacle_low?.length === 2 &&
     pack.files.obstacle_high?.length === 1 &&
-    pack.blobs.wall?.file === 'wall_blob47.png' &&
+    pack.blobs.wall?.files.join() === 'wall_blob47.png' &&
     pack.blobs.water?.masks.length === 47 &&
     pack.notes.filter((n) => n.includes('layer, not a tile role')).length === 4;
   console.log(`manifest (asset pack): ${packOk ? 'ok' : 'BROKEN'}`);
@@ -980,16 +974,20 @@ if (roundTrip !== json) failures++;
       hazard: ['hazard_01.png', 'hazard_02.png'],
     },
     blob47: {
-      wall: { sheet: 'wall_blob47.png', masks: CANONICAL_MASKS },
-      water: { sheet: 'water_blob47.png', masks: CANONICAL_MASKS },
+      // The spec asks for alternates on wall and water, one sheet on pit.
+      wall: { sheets: ['wall_blob47_a.png', 'wall_blob47_b.png'], masks: CANONICAL_MASKS },
+      water: { sheets: ['water_blob47_a.png', 'water_blob47_b.png'], masks: CANONICAL_MASKS },
+      pit: { sheet: 'pit_blob47.png', masks: CANONICAL_MASKS },
     },
   });
   const specOk =
     Object.keys(spec.files).length === 7 &&
     spec.files.floor?.length === 4 &&
     spec.files.hazard?.length === 2 &&
-    spec.blobs.wall?.file === 'wall_blob47.png' &&
+    spec.blobs.wall?.files.join() === 'wall_blob47_a.png,wall_blob47_b.png' &&
     spec.blobs.wall?.columns === null &&
+    spec.blobs.water?.files.length === 2 &&
+    spec.blobs.pit?.files.join() === 'pit_blob47.png' &&
     spec.blobs.water?.masks.length === 47 &&
     spec.notes.length === 0;
   console.log(`manifest (subbiome spec): ${specOk ? 'ok' : 'BROKEN'}`);
@@ -1013,6 +1011,20 @@ if (roundTrip !== json) failures++;
   // Top-left corner with nothing outside: E, S and the SE diagonal only.
   const maskOk = lone === 0 && full === 255 && corner === 2 + 4 + 32;
   console.log(`neighbour masks: ${maskOk ? 'ok' : `BROKEN (${lone}, ${full}, ${corner})`}`);
+
+  // A wall pierced by a doorway carries on through it. The tile to the west of
+  // a door must autotile as wall-continues-east, not as wall-ends-here, or the
+  // opening reads as two loose ends facing each other.
+  const wallRow = (x: number, y: number): boolean => y === 3 && x !== 5;
+  const doorAt = (x: number, y: number): boolean => y === 3 && x === 5;
+  const endsHere = neighbourMask(4, 3, 10, 10, wallRow, false);
+  const carriesOn = neighbourMask(4, 3, 10, 10, (x, y) => wallRow(x, y) || doorAt(x, y), false);
+  const E = 2;
+  const doorOk = (endsHere & E) === 0 && (carriesOn & E) === E;
+  console.log(
+    `wall through a doorway: ${doorOk ? 'ok, the run continues' : `BROKEN (${endsHere} -> ${carriesOn})`}`,
+  );
+  if (!doorOk) failures++;
   if (!maskOk) failures++;
 }
 

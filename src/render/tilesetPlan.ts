@@ -23,7 +23,12 @@ import { TILE_ROLES } from '../types/prefab';
  */
 
 export interface BlobPlan {
-  file: string;
+  /**
+   * One sheet, or several cut the same way. Every sheet holds the same masks in
+   * the same order and differs only in the stone: the renderer picks between
+   * them per tile, so a wall face does not repeat across a whole room.
+   */
+  files: string[];
   /** null means "work it out from the sheet width and tileSize". */
   columns: number | null;
   /** Neighbour masks in sheet order; the array position is the tile index. */
@@ -141,11 +146,20 @@ function planFromSheetManifest(raw: Record<string, unknown>, plan: TilesetPlan):
   }
 }
 
+/** A sheet name, or a list of them: both spellings read the same. */
+function sheetNames(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === 'string');
+  return [];
+}
+
 /**
  * Autotiling sheets, in either spelling:
  *
  *   "blob":   { "columns": 8, "masks": [...], "wall": "wall_blob47.png" }
  *   "blob47": { "wall": { "sheet": "wall_blob47.png", "masks": [...] } }
+ *   "blob47": { "wall": { "sheets": ["wall_blob47_a.png", "wall_blob47_b.png"],
+ *                         "masks": [...] } }
  *
  * Both are read whatever shape the rest of the manifest uses.
  */
@@ -159,11 +173,12 @@ function planBlobSheets(raw: Record<string, unknown>, plan: TilesetPlan): void {
     } else {
       for (const [key, value] of Object.entries(flat)) {
         if (!isTileRole(key)) continue;
-        if (typeof value !== 'string') {
+        const files = sheetNames(value);
+        if (files.length === 0) {
           plan.notes.push(`blob.${key}: expected a sheet filename - skipped`);
           continue;
         }
-        plan.blobs[key] = { file: value, columns, masks };
+        plan.blobs[key] = { files, columns, masks };
       }
     }
   }
@@ -180,14 +195,13 @@ function planBlobSheets(raw: Record<string, unknown>, plan: TilesetPlan): void {
       continue;
     }
     const entry = value as Record<string, unknown>;
-    const file =
-      typeof entry.sheet === 'string'
-        ? entry.sheet
-        : typeof entry.file === 'string'
-          ? entry.file
-          : null;
+    const files = [
+      ...sheetNames(entry.sheets),
+      ...sheetNames(entry.sheet),
+      ...sheetNames(entry.file),
+    ];
     const masks = Array.isArray(entry.masks) ? (entry.masks as unknown[]).map(Number) : [];
-    if (!file) {
+    if (files.length === 0) {
       plan.notes.push(`blob47.${key}: no "sheet" filename - autotiling disabled for this role`);
       continue;
     }
@@ -196,7 +210,7 @@ function planBlobSheets(raw: Record<string, unknown>, plan: TilesetPlan): void {
       continue;
     }
     plan.blobs[key] = {
-      file,
+      files,
       columns: typeof entry.columns === 'number' ? entry.columns : null,
       masks,
     };

@@ -20,7 +20,12 @@ export interface TileImage {
 }
 
 export interface BlobSheet {
-  img: HTMLImageElement;
+  /**
+   * Sheets cut to the same grid and holding the same masks. More than one means
+   * the same terrain drawn in different stone, picked per tile so that a long
+   * wall does not read as one face repeated.
+   */
+  imgs: HTMLImageElement[];
   columns: number;
   tileSize: number;
   /** mask value -> tile index in the sheet. */
@@ -109,19 +114,33 @@ async function buildTileset(
 
   const blobs: Tileset['blobs'] = {};
   for (const [role, blob] of Object.entries(plan.blobs) as Array<[TileRole, BlobPlan]>) {
-    const img = await get(blob.file);
-    if (!img) continue;
-    // Columns are optional: with tileSize known, the sheet width gives them away.
-    const columns = blob.columns ?? Math.max(1, Math.round(img.naturalWidth / plan.tileSize));
-    const tileSize = Math.round(img.naturalWidth / columns);
+    const imgs: HTMLImageElement[] = [];
+    let columns = 0;
+    let tileSize = 0;
+    for (const file of blob.files) {
+      const img = await get(file);
+      if (!img) continue;
+      // Columns are optional: with tileSize known, the sheet width gives them away.
+      const cols = blob.columns ?? Math.max(1, Math.round(img.naturalWidth / plan.tileSize));
+      const size = Math.round(img.naturalWidth / cols);
+      const cells = cols * Math.max(1, Math.round(img.naturalHeight / size));
+      if (blob.masks.length > cells) {
+        notes.push(`${file}: ${blob.masks.length} masks but only ${cells} cells - skipped`);
+        continue;
+      }
+      // Variants have to be cut alike, or the same mask would mean two things.
+      if (imgs.length > 0 && (cols !== columns || size !== tileSize)) {
+        notes.push(`${file}: cut differently from the first sheet of this role - skipped`);
+        continue;
+      }
+      columns = cols;
+      tileSize = size;
+      imgs.push(img);
+    }
+    if (imgs.length === 0) continue;
     const index = new Map<number, number>();
     blob.masks.forEach((mask, i) => index.set(mask, i));
-    const cells = columns * Math.max(1, Math.round(img.naturalHeight / tileSize));
-    if (blob.masks.length > cells) {
-      notes.push(`${blob.file}: ${blob.masks.length} masks but only ${cells} cells - autotiling disabled`);
-      continue;
-    }
-    blobs[role] = { img, columns, tileSize, index };
+    blobs[role] = { imgs, columns, tileSize, index };
   }
 
   const decals: Tileset['decals'] = {};

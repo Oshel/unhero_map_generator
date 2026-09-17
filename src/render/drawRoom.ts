@@ -16,7 +16,7 @@ import {
   PROBLEM_COLOR,
   ROLE_COLORS,
 } from './palette';
-import { hashUnit } from '../core/rng';
+import { hashTile, hashUnit } from '../core/rng';
 import {
   neighbourMask,
   variantFor,
@@ -151,6 +151,14 @@ function drawLayer(
   tileset: Tileset | null,
   alpha: number,
   snap: (value: number) => number,
+  /**
+   * Tiles a door or a gate stands in. The tile itself is a hole - that is what
+   * you walk through - but the wall it is cut into does not end there, so for
+   * autotiling it counts as wall. Without this the wall on either side of a
+   * doorway is drawn as a wall that stops, and the doorway reads as a gap with
+   * two loose ends rather than as a hole in a run of wall.
+   */
+  doorways: Set<number> = new Set(),
 ): void {
   const h = grid.length;
   const w = grid[0]?.length ?? 0;
@@ -178,15 +186,26 @@ function drawLayer(
       const blob = tileset?.blobs[role];
       if (blob) {
         // Outside the room counts as more wall, so the border reads as solid.
-        const mask = neighbourMask(x, y, w, h, (nx, ny) => grid[ny][nx] === role, role === 'wall');
+        const mask = neighbourMask(
+          x,
+          y,
+          w,
+          h,
+          (nx, ny) => grid[ny][nx] === role || (role === 'wall' && doorways.has(ny * w + nx)),
+          role === 'wall',
+        );
         const index = blob.index.get(mask);
         if (index !== undefined) {
           const sx = (index % blob.columns) * blob.tileSize;
           const sy = Math.floor(index / blob.columns) * blob.tileSize;
           const dx = snap(x * tile);
           const dy = snap(y * tile);
+          // Which sheet, when the pack brought more than one, follows the tile
+          // position - the same trick the flat variants use, and for the same
+          // reason: a wall drawn from one sheet reads as one wall.
+          const sheet = blob.imgs[hashTile(x, y, 0x5eed) % blob.imgs.length];
           g.drawImage(
-            blob.img,
+            sheet,
             sx,
             sy,
             blob.tileSize,
@@ -284,10 +303,23 @@ export function drawRoom(g: CanvasRenderingContext2D, opts: DrawOptions): void {
   g.fillStyle = '#101318';
   g.fillRect(0, 0, width, height);
 
+  // Where a doorway pierces the wall, so the wall can be drawn as carrying on
+  // through it rather than as two ends facing each other.
+  const doorways = new Set<number>();
+  for (const fixture of opts.fixtures) {
+    const span = fixture.kind === 'gate' ? 2 : 1;
+    for (let i = 0; i < span; i++) {
+      const fx = fixture.orientation === 'ns' ? fixture.x + i : fixture.x;
+      const fy = fixture.orientation === 'ns' ? fixture.y : fixture.y + i;
+      if (fx < 0 || fy < 0 || fx >= doc.size.w || fy >= doc.size.h) continue;
+      doorways.add(fy * doc.size.w + fx);
+    }
+  }
+
   for (const name of LAYER_ORDER) {
     if (!view.visibility[name]) continue;
     const alpha = name === 'deco' || name === 'overlay' ? 0.85 : 1;
-    drawLayer(g, doc.layers[name], tile, tileset, alpha, snap);
+    drawLayer(g, doc.layers[name], tile, tileset, alpha, snap, doorways);
     // Decorations sit on top of the layer that carries their role.
     if (tileset && view.visibility.decals && (name === 'ground' || name === 'blocking')) {
       drawDecals(g, doc.layers[name], tile, tileset, doc.decorSeed, snap);

@@ -28,7 +28,7 @@ Vite serves it at http://localhost:5180 and reloads on every change. Ctrl+C stop
 ## First five minutes
 
 1. **Generate**, or **New seed** for a fresh one. The right panel validates the room as it appears.
-2. **Load folder** under TILESET and point it at a tileset directory (for example `../katakumby`). The preview swaps flat colours for the real art. The browser asks for permission to read the folder; nothing leaves the tab.
+2. **Load folder** under TILESET and point it at a tileset directory (`examples/katakumby` is a complete one). The preview swaps flat colours for the real art. The browser asks for permission to read the folder; nothing leaves the tab.
 3. Wheel zooms, dragging pans, **Space** rolls a new seed, **G** toggles the grid.
 4. **Download JSON** writes the prefab.
 

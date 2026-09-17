@@ -39,7 +39,7 @@ The tileset has to be picked again after a reload - the tool deliberately rememb
 - `src/types/prefab.ts` - the schema shared with the game, including `decor_seed`. Copy verbatim into `packages/shared`.
 - `src/types/editor.ts` - tool-only state (document, view, visibility).
 - `src/core/` - rng (mulberry32), grids, passability, flood fill, erosion.
-- `src/gen/` - constants, parameters, subbiome profiles, exit rolling, shell and exit geometry, the six layout styles, liquids, markers, retry loop.
+- `src/gen/` - constants, parameters, subbiome profiles, exit rolling, shell and exit geometry, the three layout styles, liquids, markers, retry loop.
 - `src/validate/` - the five room rules and the report.
 - `src/map/` - map layout: the room grid, doors, gates, composition, map-level validation.
 - `src/render/` - colour palette, canvas renderer, optional tileset loader.
@@ -86,8 +86,10 @@ parameters always yields the same room. If validation fails it retries with
 
 Rolled from the seed by default - and rerolled on every retry: the layout style,
 how claustrophobic the room is, which sides carry an exit, their width, type and
-offset, the obstacle density, and whether there is water or pits and how much. Each group can be pinned by hand in the left panel,
-which always reports what the seed actually chose.
+offset, the obstacle density, how much of the wall between chambers is bars
+rather than stone, and whether there is water or pits and how much. Each group
+can be pinned by hand in the left panel, which always reports what the seed
+actually chose.
 
 How many exits follows the room role, so a rolled room still makes sense as a
 piece of a level:
@@ -104,11 +106,19 @@ piece of a level:
 Every opening between rooms is 2 tiles wide, on any side. `locked` is more likely
 on a treasure room than anywhere else.
 
-Every exit gets a guaranteed apron plus a corridor to the middle of the room -
-2 tiles wide in the tightest subbiomes, up to 6 in the most open ones. Layout
-styles paint around those, which is why rooms come out connected on the first
-attempt in practice. Subtractive styles skip the spokes and join the exits
-themselves.
+Exits are not decided first. The interior is built before the room has any way
+in or out, and it reports every offset on each side where an opening would land
+straight on walkable floor - a chamber or a corridor standing against the shell.
+A rolled exit is then snapped onto one of those offsets, so it opens into a room
+rather than into rock, and breaching the wall costs a single tile. Only where
+nothing is offered - or where a map has pinned the offset because the room next
+door agreed to it - does the opening pass dig inward until it meets open floor.
+
+That order is also what lets a map hang a door where both neighbours already
+have a chamber against the shared wall. An additive style gets one guaranteed
+open hall in the middle, carved after the style has run so nothing can close it;
+a subtractive style digs its own corridors and joins the exits itself, so it
+skips the hall.
 
 ## Validation
 
@@ -138,7 +148,7 @@ checks it has to pass - is [docs/tileset-prompts.md](docs/tileset-prompts.md).
     "floor": ["floor.png", "floor_damaged.png"],
     "wall": ["wall_top.png"],
     "obstacle_low": ["sarcophagus.png", "urn.png"],
-    "obstacle_high": ["grate.png"],
+    "obstacle_high": ["pillar.png"],
     "water": ["water.png"]
   }
 }
@@ -229,8 +239,15 @@ no gaps and no corridors between them. The order matters and is the point:
 
 On top of that the map picks its roles: one `entrance` and one `arena` on the rim
 of the grid, as far apart as the door graph allows, with a 2-tile gate running
-from each out to the map edge. A few treasure rooms, the rest normal. On the
-default `Mixed` profile each room also rolls its own subbiome.
+from each out to the map edge. A few treasure rooms, the rest normal.
+
+Every room of a map belongs to the one subbiome you pick, and the picker offers
+only subbiomes that are places - "no profile" is the escape hatch for working on
+a single room and is withheld from maps. What does vary room to room is the
+layout style and the claustrophobia, and they are laid out across the whole grid
+at once rather than rolled independently: no two rooms you can walk between are
+the same kind of space, and each option still gets about the same share of the
+map.
 
 Map validation is its own set of rules, and they are about exploration:
 
@@ -278,11 +295,10 @@ not the tileset: the tileset says how a subbiome looks, the profile says how it
 is built, and keeping them apart means the same catacombs can be tight or roomy
 without touching a single PNG.
 
-**Style** is the *method* used to draw the floor plan: `open`, `pillars`,
-`rooms_in_room`, `organic`, `symmetric`, `corridors`. Like the profile it is a
-way of producing the room rather than a property of it, so it stays out of the
-prefab; the map export records it per room as a note on where that room came
-from.
+**Style** is the *method* used to draw the floor plan: `open`, `rooms_in_room`,
+`organic`. Like the profile it is a way of producing the room rather than a
+property of it, so it stays out of the prefab; the map export records it per
+room as a note on where that room came from.
 
 ```
 subbiome profile  --rolls-->  style + claustrophobia + obstacle density
@@ -311,26 +327,24 @@ generator. A profile gives the odds of each layout style plus the ranges for
 claustrophobia and obstacle density.
 
 **Claustrophobia**, 0 to 100, is the one number that decides how the space feels.
-It drives corridor width (6 tiles down to 2), chamber size and count, wall
-thickness, how many doorways a chamber wall gets, and how much of the room stays
-solid rock. Measured over 48x32 rooms, going from 0 to 100 takes the walkable
-share of the room from 49% down to 24%.
+It sets how much rock `organic` starts from, how much rubble `open` scatters,
+and the size range of the chambers `rooms_in_room` packs - which in turn decides
+how many of them there are and how many doorways the room ends up with.
+Corridors are two tiles wide whatever the setting; that is a fixed decision, not
+a dial. Measured over 48x32 rooms, going from 0 to 100 takes the walkable share
+of the room from 67% down to 15%.
 
 Every style answers to it, though not equally:
 
 | Style | Mode | 0 -> 100 walkable share |
 |---|---|---|
-| `rooms_in_room` | subtractive | 29% -> 25%, the grain changes instead |
-| `corridors` | subtractive | 46% -> 22% |
-| `organic` | additive | 69% -> 14% |
-| `symmetric` | additive | 88% -> 73% |
-| `open` | additive | 88% -> 76% |
-| `pillars` | additive | 89% -> 81% |
+| `rooms_in_room` | subtractive | 54% -> 53%, the grain changes instead |
+| `organic` | additive | 67% -> 12% |
+| `open` | additive | 88% -> 80% |
 
-The two subtractive styles differ in what the skeleton is. `corridors` scatters
-chambers and joins them with a spanning tree, so it reads as a warren.
-
-`rooms_in_room` builds a route and then packs rooms around it:
+`rooms_in_room` is the only subtractive style, and the only one where tightening
+changes the grain rather than the amount of floor. It builds a route and then
+packs rooms around it:
 
 1. A **main corridor**, two tiles wide, from the first exit to the last. It does
    not take the shortest path - it wanders through three or four turns, so the
@@ -339,16 +353,19 @@ chambers and joins them with a spanning tree, so it reads as a warren.
 3. **Rooms fill everything else.** A room hangs off any floor tile - a corridor
    or a room already placed - keeps its own wall, and is entered through a single
    one-tile doorway. As space runs out the pieces being tried shrink, so the room
-   ends up filled: measured on 64x48, about 11-15% of the interior is left as
-   rock nobody built in.
+   ends up filled: measured on 64x48, 13% of the interior is left as rock nobody
+   built in at claustrophobia 0, and only 1-2% once it tightens and the pieces
+   get small enough to pack.
 
 Every corridor is the same two tiles wide, main one included: a grand hall down
 the middle reads as a different kind of place entirely.
 
 Sub-rooms come from here. Each keeps its wall and its one doorway, and those
-doorways are what the prefab records in `doors` and what the door graphic is drawn
-on. Claustrophobia changes the grain rather than the fill - roughly 23 doors per
-64x48 room at 0 against 56 at 100, the same space cut into more, smaller pieces.
+doorways are what the prefab records in `doors` and what the door graphic is
+drawn on - along with `grated`, which says whether that doorway stands in bars
+rather than stone. Claustrophobia changes the grain rather than the fill -
+roughly 23 doors per 64x48 room at 0 against 65 at 100, the same space cut into
+more, smaller pieces.
 
 **Additive** styles start from an empty room and drop obstacles into it.
 **Subtractive** styles start from solid rock and carve the room out of it - only

@@ -9,6 +9,7 @@
 export type TileRole =
   | 'floor'
   | 'wall'
+  | 'grate'
   | 'obstacle_low'
   | 'obstacle_high'
   | 'pit'
@@ -19,6 +20,7 @@ export type TileRole =
 export const TILE_ROLES: readonly TileRole[] = [
   'floor',
   'wall',
+  'grate',
   'obstacle_low',
   'obstacle_high',
   'pit',
@@ -31,11 +33,15 @@ export const TILE_ROLES: readonly TileRole[] = [
 export type GroundRole = Extract<TileRole, 'floor' | 'pit' | 'water' | 'hazard' | 'void'>;
 
 /** Roles that may appear on the `blocking` layer. */
-export type BlockingRole = Extract<TileRole, 'wall' | 'obstacle_low' | 'obstacle_high' | 'void'>;
+export type BlockingRole = Extract<
+  TileRole,
+  'wall' | 'grate' | 'obstacle_low' | 'obstacle_high' | 'void'
+>;
 
 export const GROUND_ROLES: readonly GroundRole[] = ['floor', 'pit', 'water', 'hazard', 'void'];
 export const BLOCKING_ROLES: readonly BlockingRole[] = [
   'wall',
+  'grate',
   'obstacle_low',
   'obstacle_high',
   'void',
@@ -163,6 +169,12 @@ export interface RoomDoor {
   y: number;
   /** 'ns' means the wall runs east-west and you pass north-south. */
   axis: DoorAxis;
+  /**
+   * Both tiles flanking the doorway are `grate` rather than stone, so the door
+   * needs the art that carries bars through instead of blockwork. A grate is
+   * never allowed on one side only - see gen/styles/roomsInRoom.ts.
+   */
+  grated?: boolean;
 }
 
 export interface Constraints {

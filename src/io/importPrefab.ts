@@ -131,7 +131,15 @@ function parseDoors(value: unknown): RoomDoor[] {
   return value.map((raw, i) => {
     const d = asRecord(raw, `doors[${i}]`);
     const axis = d.axis === 'ew' ? 'ew' : 'ns';
-    return { x: asInt(d.x, `doors[${i}].x`), y: asInt(d.y, `doors[${i}].y`), axis };
+    const door: RoomDoor = {
+      x: asInt(d.x, `doors[${i}].x`),
+      y: asInt(d.y, `doors[${i}].y`),
+      axis,
+    };
+    // Bars on both sides of the doorway. Absent in every prefab older than
+    // grates, and absent from most of the newer ones too.
+    if (d.grated === true) door.grated = true;
+    return door;
   });
 }
 

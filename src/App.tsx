@@ -14,7 +14,7 @@ import { ImportError, parsePrefab } from './io/importPrefab';
 import { copyToClipboard, downloadText } from './io/download';
 import { loadTilesetFromFiles, type Tileset } from './render/tileset';
 import { DEFAULT_SUBROOM_FLOOR } from './gen/constants';
-import { DEFAULT_PROFILE_ID } from './gen/profiles';
+import { DEFAULT_MAP_PROFILE_ID } from './gen/profiles';
 import { BASE_TILE_PX } from './render/palette';
 import { fitZoom } from './render/zoom';
 import { CanvasView } from './ui/CanvasView';
@@ -68,7 +68,7 @@ function defaultMapParams(): MapParams {
   return {
     size: { ...MAP_SIZE_PRESETS[1].size },
     roomSize: { mode: 'fixed', w: 24, h: 18 },
-    profile: DEFAULT_PROFILE_ID,
+    profile: DEFAULT_MAP_PROFILE_ID,
     minSubRoom: DEFAULT_SUBROOM_FLOOR,
     loopiness: 25,
     markers: { spawn: 3, loot: 1, prop: 4 },
@@ -107,7 +107,8 @@ export function App() {
     return validateRoom(doc);
   }, [mode, map, doc]);
 
-  // Doors and gates are drawn from the layout, not stored in the tiles.
+  // Doors and gates are drawn from the layout, not stored in the tiles. Grates
+  // are, so the canvas reads those off the blocking layer itself.
   const fixtures = useMemo(() => {
     if (mode === 'map' && map) return mapFixtures(map.doc);
     return doc.doors.map((door) => ({
@@ -115,6 +116,7 @@ export function App() {
       orientation: door.axis,
       x: door.x,
       y: door.y,
+      grated: door.grated,
     }));
   }, [mode, map, doc]);
 

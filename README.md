@@ -28,7 +28,7 @@ Vite serves it at http://localhost:5180 and reloads on every change. Ctrl+C stop
 ## First five minutes
 
 1. **Generate**, or **New seed** for a fresh one. The right panel validates the room as it appears.
-2. **Load folder** under TILESET and point it at a tileset directory (`examples/katakumby` is a complete one). The preview swaps flat colours for the real art. The browser asks for permission to read the folder; nothing leaves the tab.
+2. **Load folder** under TILESET and point it at a tileset directory (`examples/katakumby_astra_ultra` is a complete one, grates included; `examples/katakumby_astra_light` is the same subbiome without them). The preview swaps flat colours for the real art. The browser asks for permission to read the folder; nothing leaves the tab.
 3. Wheel zooms, dragging pans, **Space** rolls a new seed, **G** toggles the grid.
 4. **Download JSON** writes the prefab.
 
@@ -55,11 +55,22 @@ Tiles carry **roles**, never tileset indices, so a prefab works in any biome.
 | layer | roles |
 |---|---|
 | `ground` | `floor` `pit` `water` `hazard` `void` |
-| `blocking` | `wall` `obstacle_low` `obstacle_high` `void` |
+| `blocking` | `wall` `grate` `obstacle_low` `obstacle_high` `void` |
 | `deco`, `overlay` | anything - purely visual |
 
 A tile is walkable when `blocking` is `void` and `ground` is `floor` or `hazard`.
 `pit` and `water` block movement; `hazard` hurts but is crossable.
+
+A `grate` is a wall of bars: it blocks movement like any other wall, but you see
+through it and shoot through it, so a fight carries across it. `blocksSight` and
+`blocksProjectiles` in `core/passability.ts` are what say so. Only the
+`rooms_in_room` layout places them, in stretches of 2 to 5 tiles, and only in a
+wall that has somewhere to stand on both sides of it - between two sub-rooms, or
+between a sub-room and a corridor. How many is the "Grates" slider.
+
+A doorway is flanked by grates on both sides or on neither; `RoomDoor.grated`
+says which, and the pack draws those doors from `door_ns_grate` /
+`door_ew_grate` instead of `door_ns` / `door_ew`.
 
 Exit `offset` is measured from the left edge (`n`/`s`) or the top edge (`e`/`w`),
 and never covers a corner tile. An opening between two rooms is 2 tiles wide and
@@ -152,10 +163,15 @@ Rules that apply to both:
 - Several files per role are variants, picked deterministically from a hash of
   the tile position, so the preview never shimmers and no lattice appears.
   A variant may be `"file.png"` or `{ "file": "...", "weight": 1..8 }`.
-- `fixtures` are what you walk through, drawn over the tiles rather than in them:
-  `{ "door_ns": ["door_ns.png"], "door_ew": [...], "gate_ns": [...], "gate_ew": [...] }`.
+- `fixtures` are what stands in a gap in the wall, drawn over the tiles rather
+  than in them: `door_ns`, `door_ew`, `door_ns_grate`, `door_ew_grate`,
+  `gate_ns`, `gate_ew`, `grate_ns`, `grate_ew`.
   A door is 32x32 and fills the one-tile doorway into a sub-room; a gate spans the
   two tiles of a map entrance, so `gate_ns` is 64x32 and `gate_ew` is 32x64.
+  A grate is 32x32 and needs real transparency between its bars - the floor and
+  whatever stands beyond it show through. `grate` is a tile role but has no flat
+  variants: its art depends on which way the wall runs, so it is drawn from the
+  fixture that names the direction and never appears under `roles`.
   Without them the preview draws a coloured band across the opening.
 - `decals` scatter small decorations over the tiles of a role:
   `{ "file": "bones.png", "on": "floor", "density": 0.06, "jitter": 0.22 }`.

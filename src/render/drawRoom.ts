@@ -11,6 +11,7 @@ import {
   DOOR_COLOR,
   EXIT_COLOR,
   GATE_COLOR,
+  GRATE_COLOR,
   GRID_COLOR,
   MARKER_COLORS,
   PROBLEM_COLOR,
@@ -25,14 +26,84 @@ import {
   type Tileset,
 } from './tileset';
 
-/** A door or gate to draw: where it is and which way you walk through it. */
+/**
+ * Something standing in a gap in the wall: where it is and which way the wall
+ * runs through it.
+ *
+ * Doors and gates come from the layout; grates come off the blocking layer,
+ * because a grate is a tile role and only its art needs to know the direction.
+ */
 export interface Fixture {
-  kind: 'door' | 'gate';
+  kind: 'door' | 'gate' | 'grate';
   /** 'ns' means the wall runs east-west and you pass north-south. */
   orientation: 'ns' | 'ew';
   /** Top-left tile. A gate covers two tiles along the wall. */
   x: number;
   y: number;
+  /** Door only: bars on both sides of it rather than blockwork. */
+  grated?: boolean;
+}
+
+/** The art a fixture asks the pack for. */
+function fixtureKey(fixture: Fixture): FixtureKey {
+  const base = `${fixture.kind}_${fixture.orientation}`;
+  return (fixture.kind === 'door' && fixture.grated ? `${base}_grate` : base) as FixtureKey;
+}
+
+/**
+ * Grates, read off the blocking layer.
+ *
+ * The orientation is the door convention: 'ns' means you would walk through it
+ * north to south, so the wall it stands in runs east-west. Which it is follows
+ * from where the floor is, and where the layout gives no answer - a lone tile
+ * of bars - from the run of wall it sits in.
+ */
+function grateFixtures(grid: TileGrid): Fixture[] {
+  const h = grid.length;
+  const w = grid[0]?.length ?? 0;
+  const inside = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < w && y < h;
+  const open = (x: number, y: number): boolean => inside(x, y) && grid[y][x] === 'void';
+  const solid = (x: number, y: number): boolean => !inside(x, y) || grid[y][x] !== 'void';
+  const out: Fixture[] = [];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (grid[y][x] !== 'grate') continue;
+      const orientation: 'ns' | 'ew' =
+        open(x, y - 1) && open(x, y + 1)
+          ? 'ns'
+          : open(x - 1, y) && open(x + 1, y)
+            ? 'ew'
+            : solid(x - 1, y) && solid(x + 1, y)
+              ? 'ns'
+              : 'ew';
+      out.push({ kind: 'grate', orientation, x, y });
+    }
+  }
+  return out;
+}
+
+/** A door, a gate or a grate, drawn over the tiles it stands in. */
+function drawFixture(
+  g: CanvasRenderingContext2D,
+  fixture: Fixture,
+  tile: number,
+  tileset: Tileset | null,
+): void {
+  const span = fixture.kind === 'gate' ? 2 : 1;
+  const w = fixture.orientation === 'ns' ? span : 1;
+  const h = fixture.orientation === 'ns' ? 1 : span;
+  const art = tileset?.fixtures[fixtureKey(fixture)];
+  if (art && art.length > 0) {
+    const entry = variantFor(art, fixture.x, fixture.y);
+    g.drawImage(entry.img, fixture.x * tile, fixture.y * tile, w * tile, h * tile);
+    return;
+  }
+  // No art: a band across the opening, so a door still reads as a door.
+  g.fillStyle =
+    fixture.kind === 'gate' ? GATE_COLOR : fixture.kind === 'grate' ? GRATE_COLOR : DOOR_COLOR;
+  g.globalAlpha = 0.85;
+  g.fillRect(fixture.x * tile, fixture.y * tile, w * tile, h * tile);
+  g.globalAlpha = 1;
 }
 
 export interface DrawOptions {
@@ -41,7 +112,10 @@ export interface DrawOptions {
   report: ValidationReport | null;
   tileset: Tileset | null;
   hover: { x: number; y: number } | null;
-  /** Doors and gates, drawn over the tiles they stand in. */
+  /**
+   * Doors and gates, which the layout decides. Grates are not in here: they
+   * are tiles, and are read straight off the blocking layer.
+   */
   fixtures: Fixture[];
   /** The shortest way from the entrance to the exit, tile by tile. */
   route: Array<[number, number]>;
@@ -65,7 +139,13 @@ function snapper(dpr: number): (value: number) => number {
   return (value: number) => Math.round(value * dpr) / dpr;
 }
 
-/** A wall with wall on all eight sides is rock nobody sees the face of. */
+/**
+ * A wall with wall on all eight sides is rock nobody sees the face of.
+ *
+ * A grate beside it is not wall for this purpose even though it is for
+ * autotiling: you can see straight through bars, so the stone behind them is
+ * stone the player looks at.
+ */
 function buriedInRock(grid: TileGrid, x: number, y: number, w: number, h: number): boolean {
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
@@ -152,11 +232,11 @@ function drawLayer(
   alpha: number,
   snap: (value: number) => number,
   /**
-   * Tiles a door or a gate stands in. The tile itself is a hole - that is what
-   * you walk through - but the wall it is cut into does not end there, so for
-   * autotiling it counts as wall. Without this the wall on either side of a
-   * doorway is drawn as a wall that stops, and the doorway reads as a gap with
-   * two loose ends rather than as a hole in a run of wall.
+   * Tiles a door, a gate or a grate stands in. The tile itself is not stone -
+   * it is what you walk through, or what you see through - but the wall it is
+   * cut into does not end there, so for autotiling it counts as wall. Without
+   * this the wall on either side is drawn as a wall that stops, and the gap
+   * reads as two loose ends rather than as a hole in a run of wall.
    */
   doorways: Set<number> = new Set(),
 ): void {
@@ -174,6 +254,8 @@ function drawLayer(
     for (let x = 0; x < w; x++) {
       const role = row[x];
       if (role === 'void') continue;
+      // Bars are drawn with the doors, over the floor showing through them.
+      if (role === 'grate') continue;
 
       // Rock with rock on every side has no face to light, so there is nothing
       // to draw but the dark. It also keeps the wall mass reading as depth.
@@ -303,10 +385,11 @@ export function drawRoom(g: CanvasRenderingContext2D, opts: DrawOptions): void {
   g.fillStyle = '#101318';
   g.fillRect(0, 0, width, height);
 
-  // Where a doorway pierces the wall, so the wall can be drawn as carrying on
-  // through it rather than as two ends facing each other.
+  // Where a doorway or a grate pierces the wall, so the wall can be drawn as
+  // carrying on through it rather than as two ends facing each other.
+  const grates = grateFixtures(doc.layers.blocking);
   const doorways = new Set<number>();
-  for (const fixture of opts.fixtures) {
+  for (const fixture of [...opts.fixtures, ...grates]) {
     const span = fixture.kind === 'gate' ? 2 : 1;
     for (let i = 0; i < span; i++) {
       const fx = fixture.orientation === 'ns' ? fixture.x + i : fixture.x;
@@ -320,6 +403,12 @@ export function drawRoom(g: CanvasRenderingContext2D, opts: DrawOptions): void {
     if (!view.visibility[name]) continue;
     const alpha = name === 'deco' || name === 'overlay' ? 0.85 : 1;
     drawLayer(g, doc.layers[name], tile, tileset, alpha, snap, doorways);
+    // Bars stand in the blocking layer but are drawn like a door, over the
+    // floor that shows through them - so they follow that layer's own toggle
+    // rather than the one for doors and gates the layout put in.
+    if (name === 'blocking') {
+      for (const grate of grates) drawFixture(g, grate, tile, tileset);
+    }
     // Decorations sit on top of the layer that carries their role.
     if (tileset && view.visibility.decals && (name === 'ground' || name === 'blocking')) {
       drawDecals(g, doc.layers[name], tile, tileset, doc.decorSeed, snap);
@@ -378,24 +467,8 @@ export function drawRoom(g: CanvasRenderingContext2D, opts: DrawOptions): void {
     g.stroke();
   }
 
-  if (view.visibility.fixtures && opts.fixtures.length > 0) {
-    for (const fixture of opts.fixtures) {
-      const key = `${fixture.kind}_${fixture.orientation}` as FixtureKey;
-      const art = tileset?.fixtures[key];
-      const span = fixture.kind === 'gate' ? 2 : 1;
-      const w = fixture.orientation === 'ns' ? span : 1;
-      const h = fixture.orientation === 'ns' ? 1 : span;
-      if (art && art.length > 0) {
-        const entry = variantFor(art, fixture.x, fixture.y);
-        g.drawImage(entry.img, fixture.x * tile, fixture.y * tile, w * tile, h * tile);
-        continue;
-      }
-      // No art: a band across the opening, so a door still reads as a door.
-      g.fillStyle = fixture.kind === 'gate' ? GATE_COLOR : DOOR_COLOR;
-      g.globalAlpha = 0.85;
-      g.fillRect(fixture.x * tile, fixture.y * tile, w * tile, h * tile);
-      g.globalAlpha = 1;
-    }
+  if (view.visibility.fixtures) {
+    for (const fixture of opts.fixtures) drawFixture(g, fixture, tile, tileset);
   }
 
   // Under the markers, over the tiles: the run from the entrance to the exit.

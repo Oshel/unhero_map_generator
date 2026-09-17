@@ -1,5 +1,7 @@
 import type { RoomDoor, Size } from '../../types/prefab';
+import type { Rng } from '../../core/rng';
 import { clampSubRoom, type GenParams } from '../params';
+import { MAX_GRATE_RUN, MIN_GRATE_RUN } from '../constants';
 import { carveRect, exitAnchor } from '../outline';
 import type { StyleContext, StyleFn } from './context';
 
@@ -67,6 +69,162 @@ function roomSizeRange(c: number, minSide: number): [number, number] {
  */
 function insideInterior(size: Size, r: Rect): boolean {
   return r.x0 >= 0 && r.y0 >= 0 && r.x1 <= size.w - 1 && r.y1 <= size.h - 1;
+}
+
+/**
+ * One tile of a wall that has a room on either side of it, and so could be
+ * bars instead of stone.
+ */
+interface GrateCell {
+  x: number;
+  y: number;
+  /** A doorway already standing in this same run of wall, or null for rock. */
+  door: RoomDoor | null;
+}
+
+/**
+ * The stretch of a run that turns to bars.
+ *
+ * A door in the middle of the stretch is fine and is what the grated door art
+ * is for; a door with bars on one side and stone on the other is not, because
+ * the two halves of the wall meet the door frame at different depths and there
+ * is no graphic that joins them. So the span either swallows a door together
+ * with the tile on its far side, or backs off it entirely.
+ */
+function pickGrateSpan(run: GrateCell[], rng: Rng): { lo: number; hi: number } | null {
+  const want = Math.min(run.length, rng.int(MIN_GRATE_RUN, MAX_GRATE_RUN));
+  let lo = rng.int(0, run.length - want);
+  let hi = lo + want - 1;
+
+  // Each pass moves exactly one bound, so the run length bounds the loop.
+  for (let guard = 0; guard < run.length * 2 && lo <= hi; guard++) {
+    // A door on the end of the span has bars on the inside and stone outside.
+    if (run[lo].door) {
+      lo++;
+      continue;
+    }
+    if (run[hi].door) {
+      hi--;
+      continue;
+    }
+    const before = lo - 1;
+    if (before >= 0 && run[before].door) {
+      if (before - 1 >= 0 && !run[before - 1].door) lo = before - 1;
+      else lo++;
+      continue;
+    }
+    const after = hi + 1;
+    if (after < run.length && run[after].door) {
+      if (after + 1 < run.length && !run[after + 1].door) hi = after + 1;
+      else hi--;
+      continue;
+    }
+    break;
+  }
+
+  if (lo > hi || hi - lo + 1 < MIN_GRATE_RUN) return null;
+  return { lo, hi };
+}
+
+/**
+ * Turn stretches of the walls between chambers into grates: bars you see and
+ * shoot through but cannot walk through.
+ *
+ * Only a wall with somewhere to stand on both sides of it qualifies, which is
+ * exactly the wall between two sub-rooms or between a sub-room and a corridor.
+ * The room's own shell is never touched, and neither is a wall with rock behind
+ * it - bars onto solid rock are a window into nothing.
+ *
+ * Nothing about where you can walk changes: a grate blocks movement just as the
+ * stone it replaces did, so no chamber is cut off and no pocket is opened.
+ */
+function placeGrates(ctx: StyleContext): void {
+  const { size, layers } = ctx;
+  const share = Math.max(0, Math.min(100, ctx.resolved.grates)) / 100;
+  if (share <= 0) return;
+
+  const open = (x: number, y: number): boolean =>
+    x >= 0 && y >= 0 && x < size.w && y < size.h && layers.blocking[y][x] === 'void';
+  const rock = (x: number, y: number): boolean =>
+    x >= 1 && y >= 1 && x < size.w - 1 && y < size.h - 1 && layers.blocking[y][x] === 'wall';
+
+  const doorAt = new Map<number, RoomDoor>();
+  for (const door of ctx.doors) doorAt.set(door.y * size.w + door.x, door);
+
+  /**
+   * Rock with floor on both sides across `axis` - 'ns' meaning you would walk
+   * through it north to south, so the wall itself runs east-west.
+   *
+   * A tile open on both axes is a pinch between four chambers rather than a
+   * wall, and a tile whose open side is a doorway is that doorway's own jamb:
+   * grating it puts bars beside a door instead of in a wall.
+   */
+  const divides = (x: number, y: number, axis: 'ns' | 'ew'): boolean => {
+    if (!rock(x, y) || ctx.protectedMask[y * size.w + x]) return false;
+    const acrossNS = open(x, y - 1) && open(x, y + 1);
+    const acrossEW = open(x - 1, y) && open(x + 1, y);
+    if (acrossNS === acrossEW) return false;
+    if (axis === 'ns' ? !acrossNS : !acrossEW) return false;
+    const sides: Array<[number, number]> =
+      axis === 'ns'
+        ? [
+            [x, y - 1],
+            [x, y + 1],
+          ]
+        : [
+            [x - 1, y],
+            [x + 1, y],
+          ];
+    return !sides.some(([sx, sy]) => doorAt.has(sy * size.w + sx));
+  };
+
+  /** A cell of a run: a wall tile that could be bars, or a door already in it. */
+  const cellAt = (x: number, y: number, axis: 'ns' | 'ew'): GrateCell | null => {
+    const door = doorAt.get(y * size.w + x);
+    if (door) return door.axis === axis ? { x, y, door } : null;
+    return divides(x, y, axis) ? { x, y, door: null } : null;
+  };
+
+  const runs: GrateCell[][] = [];
+  const collect = (axis: 'ns' | 'ew'): void => {
+    // A run follows the wall: east-west for an 'ns' crossing, north-south for
+    // an 'ew' one.
+    const lines = axis === 'ns' ? size.h : size.w;
+    const along = axis === 'ns' ? size.w : size.h;
+    for (let line = 1; line < lines - 1; line++) {
+      let current: GrateCell[] = [];
+      for (let i = 1; i < along - 1; i++) {
+        const cell = axis === 'ns' ? cellAt(i, line, axis) : cellAt(line, i, axis);
+        if (cell) {
+          current.push(cell);
+          continue;
+        }
+        if (current.length > 0) runs.push(current);
+        current = [];
+      }
+      if (current.length > 0) runs.push(current);
+    }
+  };
+  collect('ns');
+  collect('ew');
+
+  for (const run of runs) {
+    // A run of nothing but doorways is not a wall, and one tile of bars is a
+    // loophole rather than a grate.
+    if (run.length < MIN_GRATE_RUN || run.every((c) => c.door)) continue;
+    if (!ctx.rng.chance(share)) continue;
+    const span = pickGrateSpan(run, ctx.rng);
+    if (!span) continue;
+    for (let i = span.lo; i <= span.hi; i++) {
+      const cell = run[i];
+      if (cell.door) {
+        cell.door.grated = true;
+        continue;
+      }
+      layers.blocking[cell.y][cell.x] = 'grate';
+      layers.ground[cell.y][cell.x] = 'floor';
+    }
+  }
 }
 
 /**
@@ -339,7 +497,10 @@ export const roomsInRoomStyle: StyleFn = (ctx) => {
     deadEnds = 0;
   }
 
-  // 5. Clutter against the walls, never in a doorway.
+  // 5. Bars in some of the walls between one chamber and the next.
+  placeGrates(ctx);
+
+  // 6. Clutter against the walls, never in a doorway.
   const clutter = ctx.resolved.obstacleDensity / 100;
   const doorAt = new Set(ctx.doors.map((d) => `${d.x},${d.y}`));
   for (let y = 2; y < size.h - 2; y++) {

@@ -14,6 +14,17 @@ export const GATE_WIDTH = 2;
 export const DOOR_WIDTH = 1;
 
 /**
+ * A grate is a run of bars standing in a wall: you see and shoot through it,
+ * you do not walk through it. One tile of it is a loophole rather than a
+ * window, and a run longer than this is a wall the room has stopped having.
+ */
+export const MIN_GRATE_RUN = 2;
+export const MAX_GRATE_RUN = 5;
+
+/** Where the grate slider sits before anyone touches it. */
+export const DEFAULT_GRATES = 30;
+
+/**
  * Floor of the smallest sub-room a subtractive style will place, as the player
  * sees it - the wall ring around it is the generator's business and is added on
  * top. One tile of floor is a cupboard, not a room; past a dozen the style has

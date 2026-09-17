@@ -12,7 +12,11 @@ export function toPrefab(doc: RoomDoc): RoomPrefab {
     subbiome_tags: [...doc.meta.subbiome_tags],
     weight: doc.meta.weight,
     exits: doc.exits.map((e) => ({ ...e })),
-    doors: doc.doors.map((d) => ({ ...d })),
+    // `grated` is left out unless it is true: it is the exception, and every
+    // prefab written before grates existed has to keep parsing byte for byte.
+    doors: doc.doors.map((d) =>
+      d.grated ? { x: d.x, y: d.y, axis: d.axis, grated: true } : { x: d.x, y: d.y, axis: d.axis },
+    ),
     layers: {
       ground: doc.layers.ground.map((r) => [...r]),
       blocking: doc.layers.blocking.map((r) => [...r]),
@@ -49,6 +53,7 @@ export function prefabToJson(prefab: RoomPrefab): string {
     `  "subbiome_tags": ${JSON.stringify(prefab.subbiome_tags)}`,
     `  "weight": ${JSON.stringify(prefab.weight)}`,
     `  "exits": [\n${prefab.exits.map((e) => `    ${JSON.stringify(e)}`).join(',\n')}\n  ]`,
+    `  "doors": [${prefab.doors.map((d) => JSON.stringify(d)).join(', ')}]`,
   ];
 
   const layers = LAYER_NAMES.map(

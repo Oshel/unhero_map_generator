@@ -10,7 +10,7 @@ Wszystkie palety i opisy kafli dla 50 podbiomów są w sekcji 6.
 
 ## 1. Zadanie
 
-Na polecenie „wygeneruj tileset dla podbiomu X" wyprodukuj **20 kafli** według tabeli z sekcji 4, **pięć arkuszy blob47** według sekcji 4.1 — mur i woda po dwa warianty, przepaść jeden — **sześć dekali** według sekcji 4.2, **cztery przejścia** według sekcji 4.3 oraz plik `tiles.json` z sekcji 7.
+Na polecenie „wygeneruj tileset dla podbiomu X" wyprodukuj **20 kafli** według tabeli z sekcji 4, **pięć arkuszy blob47** według sekcji 4.1 — mur i woda po dwa warianty, przepaść jeden — **sześć dekali** według sekcji 4.2, **osiem przejść** według sekcji 4.3 oraz plik `tiles.json` z sekcji 7.
 
 Każdy obraz to pojedynczy kafel **32×32 piksele**, gotowy do wczytania przez generator map bez żadnej obróbki pośredniej. Żadnych arkuszy, żadnych tekstur do cięcia, żadnych masek.
 
@@ -103,6 +103,8 @@ Warianty tej samej roli to **odmiany tego samego motywu**, nie różne obiekty �
 
 `deco` i `overlay` to warstwy edytora, nie role. Nie generować pod nie kafli.
 
+**Krata (`grate`) jest ósmą rolą kafla, ale nie ma kafla płaskiego.** Jej wygląd zależy od tego, którędy biegnie mur, czego płaska lista wariantów nie umie powiedzieć — więc kraty rysujemy jak drzwi, w sekcji 4.3, i w `tiles.json` siedzą w `fixtures`, nie w `roles`. W `roles` krata nie występuje w ogóle.
+
 Wszystkie pliki: **PNG 32×32 RGBA**. Wszystkie kafle w paczce dzielą **jeden zestaw kolorów** — paleta jest wspólna dla całego podbiomu, nie ustalana osobno dla każdego kafla. Kolejność wariantów pod rolą jest stała i wynika z numeracji plików.
 
 ---
@@ -184,34 +186,141 @@ Prompt dla dekala składasz tak samo jak dla kafla, ale z **blokiem przezroczyst
 
 ---
 
-## 4.3. Przejścia: drzwi i brama
+## 4.3. Przejścia: drzwi, brama i krata
 
-Cztery grafiki, przez które gracz przechodzi. Nie są kaflami podłoża ani obiektami — rysowane są **na wierzchu** kafla, dokładnie w otworze w murze.
+Osiem grafik stojących w przerwie w murze. Nie są kaflami podłoża ani obiektami — rysowane są **na wierzchu** kafla, dokładnie w otworze w murze. Pod spodem leży podłoga pokoju i to ona ma być widoczna w prześwicie.
 
 | Plik | Rozmiar | Co to jest |
 |---|---|---|
 | `door_ns.png` | 32×32 | drzwi w murze biegnącym wschód–zachód, przechodzisz z północy na południe |
 | `door_ew.png` | 32×32 | drzwi w murze biegnącym północ–południe, przechodzisz ze wschodu na zachód |
+| `door_ns_grate.png` | 32×32 | te same drzwi, ale mur po obu stronach otworu zastąpiony kratą |
+| `door_ew_grate.png` | 32×32 | to samo dla muru północ–południe |
 | `gate_ns.png` | **64×32** | brama w murze wschód–zachód, szeroka na dwa kafle |
 | `gate_ew.png` | **32×64** | brama w murze północ–południe, wysoka na dwa kafle |
+| `grate_ns.png` | 32×32 | krata w murze biegnącym wschód–zachód |
+| `grate_ew.png` | 32×32 | krata w murze biegnącym północ–południe |
+
+### Dwie perspektywy: `ns` i `ew`
+
+Tę regułę przeczytaj **przed każdą z ośmiu grafik**, bo rozstrzyga o wszystkich naraz. Wariant `ns` i wariant `ew` tego samego przejścia to **ten sam obiekt obrócony razem z kamerą**, a nie ten sam obrazek położony na boku — i wychodzą z tego dwa rysunki, które nie są do siebie podobne.
+
+**Mur zawsze biegnie na wylot przez kafel, a przejście jest przerwą w tym biegu.** Cała różnica bierze się z tego, w którą stronę mur biegnie:
+
+| | `ns` | `ew` |
+|---|---|---|
+| Mur biegnie | wschód–zachód, poziomo na ekranie | północ–południe, pionowo na ekranie |
+| Patrzymy na | **lico** muru, od przodu | **wierzch** muru, z góry |
+| Kamień zostaje przy krawędzi | **lewej i prawej** | **górnej i dolnej** |
+| Przechodzisz | z góry na dół kafla | z lewej na prawą kafla |
+| Przejście jest otwarte ku | górze i dołowi | lewej i prawej |
+
+Kraty są tu jedynym wyjątkiem i to tylko w jedną stronę: krata jest cienka, więc **nie ma kamienia przy żadnej krawędzi** — ma go mniej, niż mówi tabela, nigdy więcej. Szczegóły w podrozdziale o kracie.
+
+Ostatni wiersz tabeli jest tym, o który się to najczęściej rozbija. **Kamień stoi tylko przy tych dwóch krawędziach, którymi mur wybiega z kafla — przy pozostałych dwóch są komnaty i tam ma być przezroczystość.** W wariancie `ew` znaczy to, że **lewa i prawa krawędź kafla nie może mieć ani jednego piksela kamienia w paśmie przejścia**: przejście biegnie na wylot od lewej krawędzi do prawej.
+
+#### Czego w wariantach `ew` być nie może
+
+Kamień dorysowany przy lewej i prawej krawędzi zamyka framugę w pierścień i z przejścia robi się **właz albo klapa w podłodze** — płyta z dziurą, leżąca płasko na ziemi. Kafel zrobiony w ten sposób jest do wygenerowania od nowa, choćby sam w sobie wyglądał dobrze. Gracz odczyta go jako coś, po czym się chodzi albo do czego się schodzi, a nie jako przejście w ścianie.
+
+W `door_ew`, `door_ew_grate`, `gate_ew` i `grate_ew` **nie wolno**:
+
+- **zamykać framugi dookoła** — kamień przy lewej i prawej krawędzi kafla w paśmie przejścia jest zakazany; przez otwór ma dać się przeciągnąć poziomą linię od krawędzi do krawędzi, nie trafiając w ani jeden piksel w jasności muru,
+- rysować otworu jako **ciemnej wnęki, dziury ani zapadliny** — przez przejście widać posadzkę sąsiedniej komnaty, oświetloną tak samo jak reszta podłogi; otwór ciemniejszy od podłogi czyta się jako przepaść, a nie jako droga,
+- rysować **łuku, nadproża, skrzydła ani kraty w elewacji** i kłaść tego płasko — to jest dokładnie ten obrót o ćwierć, który zamienia przejście w przedmiot leżący na ziemi.
+
+To samo dotyczy wariantów `ns`, tylko z zamienionymi osiami: tam zakazany jest kamień przy górnej i dolnej krawędzi w paśmie przejścia.
+
+### Drzwi
 
 **Drzwi** to wejście do **podpokoju** — komory wydzielonej wewnątrz pokoju. Otwór ma **jeden kafel** szerokości, przechodzi się pojedynczo.
 
-Grafika wypełnia cały kafel i jest **fragmentem muru z dziurą pośrodku**, nie ozdobą postawioną na podłodze. Po obu stronach otworu zostaje **kawałek muru z tego samego kamienia co kafle `wall`** — ta sama paleta, ta sama faktura, ta sama grubość co pas muru na sąsiednich kaflach i na tej samej wysokości, tak żeby mur przechodził przez kafel drzwi bez uskoku. Otwór jest wyśrodkowany i **węższy niż kafel**: przy kaflu 32 px framuga zjada po **8–10 px z każdej strony**, na przejście zostaje 12–16 px.
+Grafika wypełnia cały kafel i jest **fragmentem muru z dziurą pośrodku**, nie ozdobą postawioną na podłodze. Przy tych dwóch krawędziach, którymi mur wybiega z kafla — patrz tabela wyżej — zostaje **kawałek muru z tego samego kamienia co kafle `wall`**: ta sama paleta, ta sama faktura, ta sama grubość i ta sama wysokość co pas muru na sąsiednich kaflach, tak żeby mur przechodził przez kafel drzwi bez uskoku. Otwór jest wyśrodkowany i **węższy niż kafel**: przy kaflu 32 px framuga zjada po **8–10 px z każdej z tych dwóch stron**, na przejście zostaje 12–16 px.
 
 Generator rysuje mur po obu stronach drzwi jako **ciągnący się w stronę drzwi** — kafel muru obok otworu nie jest zakończeniem, tylko odcinkiem biegnącym dalej. Grafika drzwi musi ten bieg podchwycić: gdyby zabrać z niej sam otwór, kafel ma wyglądać jak zwykły kawałek muru.
 
+#### `door_ns` — mur wschód–zachód, widok od frontu
+
+Mur biegnie poziomo i patrzymy na jego lico, więc widać je tak, jak stoi: **lewa i prawa ósma część kafla to kamień**, a między nimi nadproże, ościeża i otwór 12–16 px z wydeptanym progiem u dołu. Górna i dolna krawędź kafla należą do otworu i do posadzki, nie do kamienia.
+
+#### `door_ew` — mur północ–południe, widok z góry
+
+Mur biegnie na ekranie pionowo i patrzymy na jego **wierzch**, więc kafel czyta się zupełnie inaczej niż `door_ns` i tak ma być.
+
+- **Górne 8–10 px i dolne 8–10 px** to wierzch muru: kamień na całą szerokość kafla, ten sam co na sąsiednich kaflach `wall`, bo to tamtędy mur biegnie dalej na północ i na południe.
+- **Między nimi, na 12–16 px, jest przejście** — i biegnie ono **na wylot, od lewej krawędzi kafla do prawej**. Widać w nim wydeptane kamienie progu i posadzkę, w jasności podłogi, a nie ciemną wnękę.
+- Tuż przy kamieniu, od strony otworu, może leżeć **wąski ciemniejszy pasek** — to zacieniony bok ościeża, czyli grubość muru widziana z góry. Pasek biegnie poziomo, wzdłuż kamienia, i ma najwyżej 2–3 px.
+- **Lewa i prawa krawędź kafla, w paśmie przejścia, są w pełni przezroczyste.** Tam są posadzki obu komnat i mają wpływać w przejście bez przerwy.
+
+Skrzydło drzwi, jeśli je rysujesz, jest z góry **cienką płytą stojącą otworem** — wąskim prostokątem odchylonym i dostawionym do jednego ościeża, z własnym cieniem styku. Nigdy płytą leżącą płasko w otworze ani panelem drzwi widzianym od frontu.
+
 Przejścia **między pokojami mapy** mają dwa kafle szerokości i nie dostają żadnej grafiki — to zwykły otwór w murze.
+
+### Krata
+
+**Krata** to odcinek muru zastąpiony kratą: **widać przez nią i lecą przez nią pociski, ale nie da się przez nią przejść**. Generator stawia ją w murze między dwoma podpokojami albo między podpokojem a korytarzem, nigdy w skorupie pokoju i nigdy tam, gdzie za nią jest lita skała — po obu stronach kraty zawsze jest miejsce, na którym można stanąć. Kraty kładzione są **odcinkami po 2–5 kafli**, nie pojedynczo.
+
+**Prześwity między prętami muszą być faktycznie przezroczyste.** To wymóg twardy i jedyny, którego nie da się naprawić później: to przez nie widać podłogę i przeciwnika po drugiej stronie. Krata narysowana jako pełna płaszczyzna z namalowaną kratką jest kafel do wygenerowania od nowa — z daleka wygląda tak samo, a w grze znaczy coś dokładnie odwrotnego.
+
+Metal jest jednym wspólnym materiałem dla całej paczki — kute, matowe, przygaszone żelazo z rdzą albo śniedzią zależnie od podbiomu. Jasność prętów trzymaj **w paśmie muru** z sekcji 5.2.
+
+#### Zdanie, z którego wynika cała reszta
+
+**Krata jest cienka, a mur jest gruby.** Mur ma grubość całego kafla — 32 px. Krata to szereg prętów po 2–3 px. Kiedy generator zamienia kafel muru na kratę, nie zostaje tam żaden kamień: **zostaje sam szereg prętów, a cała reszta kafla to podłoga, którą widać**. Z tego jednego faktu wynikają obie orientacje, i dlatego wyglądają zupełnie inaczej — tak samo jak `door_ns` i `door_ew`.
+
+Pręty są **pionowe w świecie gry**, jak w celi więziennej: stoją od podłogi do sufitu. Zmienia się tylko to, pod jakim kątem na nie patrzymy.
+
+#### `grate_ns` — mur wschód–zachód, widok od frontu
+
+Mur biegnie poziomo, jego lico jest zwrócone do kamery, więc pręty widzimy **w elewacji, z boku, na całą ich wysokość**: pionowe, wysokie na niemal cały kafel, a między nimi pionowe przezroczyste szpary, przez które widać posadzkę.
+
+Proporcje: pręt szeroki na **2–3 px**, szpara **4–6 px**, czyli 4–6 prętów na kafel. Węższe szpary zlewają się w powierzchnię przy oddaleniu kamery, szersze przestają wyglądać na przeszkodę. U góry i u dołu zostaje po **4–6 px** poziomej oprawy — nadproże i próg, w które pręty są osadzone.
+
+#### `grate_ew` — mur północ–południe, widok z góry
+
+Mur biegnie na ekranie pionowo i patrzymy na jego **wierzch**. Pręty stoją pionowo w świecie, więc z góry widzimy **ich czubki**, a czubek pręta to punkt, nie szczebel.
+
+Pręty są rozstawione **wzdłuż muru**, czyli z północy na południe. Z góry układają się zatem w **jeden pionowy szereg drobnych znaczków biegnący środkiem kafla, z góry na dół**: 4–5 czubków na kafel, każdy owalny, szeroki na **3–4 px** i wysoki na **5–6 px** — czubek plus wąski skrawek południowego boku, zgodnie z perspektywą ¾ — rozstawione co **4–6 px**, każdy z twardym ciemnym cieniem styku od dołu, żeby czytał się jako pręt sterczący w górę, a nie jako kropka namalowana na posadzce.
+
+**Cała reszta kafla — cały pas po lewej i cały pas po prawej od tego szeregu — jest w pełni przezroczysta.** Tam jest podłoga sąsiednich komnat i to ona ma być widoczna. Szereg czubków trzymaj w środkowych 12 px kafla, czyli **co najmniej 10 px od lewej i od prawej krawędzi**.
+
+Ten wariant jest **w większości przezroczysty** i tak ma być. To nie jest usterka do naprawienia dorysowaniem kamienia: krata jest cienka, więc zajmuje wąski pasek, a przez resztę kafla naprawdę widać podłogę.
+
+#### Czego w `grate_ew` być nie może
+
+Najczęstszy i najgorszy błąd to narysowanie kraty jak **drabiny położonej płasko na podłodze**: dwie ciągłe jasne szyny wzdłuż lewej i prawej krawędzi kafla, a między nimi poprzeczne szczeble na całą szerokość. Kafel zrobiony w ten sposób jest do wygenerowania od nowa. Wychodzi z tego drabina leżąca na ziemi, a nie krata stojąca w murze — i gracz odczyta go jako coś, po czym się chodzi, a nie jako ścianę, przez którą się strzela.
+
+Konkretnie, w `grate_ew` **nie wolno**:
+
+- rysować żadnego **ciągłego pasa** biegnącego z góry na dół wzdłuż lewej ani prawej krawędzi — ani kamiennego, ani metalowego, ani jako oprawy, ani jako progu; te dwa pasy to właśnie szyny drabiny,
+- rysować prętów jako **poprzecznych belek dotykających lewej i prawej krawędzi** kafla; czubek pręta jest drobny i ze wszystkich czterech stron otacza go przezroczystość,
+- kłaść tam kraty **w elewacji obróconej o ćwierć obrotu**, czyli `grate_ns` położonej na boku.
+
+#### Kafelkowanie
+
+Odcinek kraty ma się kafelkować **sam ze sobą wzdłuż muru** — `grate_ns` w poziomie, `grate_ew` w pionie — dając jeden ciągły szereg o równym rytmie, bez zgęszczenia ani przerwy na styku. Rozstaw prętów musi więc wychodzić na krawędzi kafla tak, żeby kontynuacja się zgadzała.
+
+### Drzwi w kracie
+
+Krata **może sąsiadować z drzwiami**, ale generator pilnuje, żeby robiła to **z obu stron naraz**: albo oba kafle przylegające do otworu są kratą, albo żaden. Drzwi z kratą po jednej stronie i murem po drugiej nie powstaną, bo nie ma grafiki, która połączyłaby oprawę kraty z licem muru w poprzek framugi.
+
+Stąd `door_ns_grate` i `door_ew_grate`. Są to **te same drzwi co `door_ns` i `door_ew`** — ten sam otwór tej samej szerokości, w tym samym miejscu kafla, ta sama framuga i ten sam próg. Zmienia się wyłącznie to, co jest po obu stronach otworu: zamiast skrajnej ósmej części kafla wypełnionej kamieniem muru stoją tam **pręty tej samej kraty co w `grate_ns` / `grate_ew`**, w tym samym rytmie i z tymi samymi przezroczystymi prześwitami.
+
+Innymi słowy: `door_ns_grate` ma pasować do `grate_ns` położonej obok tak samo, jak `door_ns` pasuje do kafla `wall`. Rozstaw prętów przechodzi przez styk bez zgęszczenia, oprawa kraty leży na tej samej wysokości.
+
+Ościeże drzwi zostaje kamienne — otwór musi mieć oprawę, do której krata jest przymocowana. Na 32 px kafla wychodzi więc: **kilka pikseli kraty, wąska kamienna framuga, otwór 12–16 px, framuga, krata**.
+
+Każdy wariant bierze kratę w swojej własnej perspektywie. W `door_ns_grate` skrajne pasy to **pionowe pręty w elewacji**, jak w `grate_ns`. W `door_ew_grate` skrajne pasy to **czubki prętów widziane z góry**, jak w `grate_ew` — czyli po jednym, najwyżej dwóch drobnych owalnych znaczkach na osi kafla, przy górnej i przy dolnej krawędzi. Nie poprzeczna belka i nie ciągły pas przy lewej ani prawej krawędzi.
+
+### Brama
 
 **Brama** to wejście do całego lochu i wyjście z niego — stoi wyłącznie na pierwszym i ostatnim pokoju mapy. Otwór ma **dwa kafle** szerokości, więc grafika jest podwójna i rysowana jednym kawałkiem. Brama ma być wyraźnie okazalsza od drzwi: łuk, odrzwia, okucia, ślady po zawiasach. To pierwszy i ostatni element poziomu, jaki gracz widzi.
 
-Ta sama zasada co przy drzwiach: skrajne **8–12 px po obu stronach** to mur ciągnący się dalej, wpisany w linię muru sąsiednich kafli. Brama ma być otworem w murze, a nie bramą stojącą w szczerym polu.
+Ta sama zasada co przy drzwiach: skrajne **8–12 px** przy tych dwóch krawędziach, którymi mur wybiega z kafla, to mur ciągnący się dalej, wpisany w linię muru sąsiednich kafli. Brama ma być otworem w murze, a nie bramą stojącą w szczerym polu.
 
-Obie wersje tego samego przejścia to **ten sam obiekt obrócony o 90 stopni**, nie dwa różne przedmioty — ale obrócony razem z kamerą, nie postawiony bokiem.
+`gate_ns` jest szerokie na 64 px i mur zostaje przy **lewej i prawej** krawędzi; łuk, odrzwia i skrzydła widać od frontu.
 
-**Wariant `ew` widzimy z góry.** Mur biegnący północ–południe stoi na ekranie pionowo i patrzymy na jego **wierzch**, więc przejście w nim to przerwa w pasie muru oglądana z góry: widać górne powierzchnie obu ościeży i posadzkę w prześwicie, a z boku framugi najwyżej wąski pasek ścianki. Czego tam nie ma: łuku widzianego od frontu, framugi narysowanej w elewacji, drzwi stojących twarzą do gracza. Taki rysunek wygląda, jakby przejście leżało na ziemi obrócone o ćwierć obrotu.
-
-Wariant `ns` jest tym, który pokazuje front: mur biegnie wschód–zachód, jego lico zwrócone jest do kamery, więc nadproże, ościeża i skrzydło widać od przodu, zgodnie z perspektywą ¾.
+`gate_ew` jest wysokie na 64 px i mur zostaje przy **górnej i dolnej** krawędzi; patrzymy z góry na wierzchy dwóch filarów, a między nimi na posadzkę bramy biegnącą **na wylot od lewej krawędzi do prawej**. Skrzydła są z góry cienkimi płytami stojącymi otworem, dostawionymi do filarów. Nie ma tam łuku w elewacji ani ciemnej wnęki, a przy lewej i prawej krawędzi w paśmie przejścia nie ma kamienia.
 
 Tło poza framugą **przezroczyste** — pod spodem leży podłoga pokoju i to ona ma być widoczna w samym przejściu. Prompt składasz z blokiem przezroczystości z sekcji 3, bez wymogu kafelkowania.
 
@@ -236,7 +345,7 @@ Przyjmij pięć pasm jasności, liczonych w skali 0–100 po konwersji na szaro�
 | najciemniejsze | 5–15 | `pit`, wnętrza wnęk i szczelin |
 | ciemne | 20–35 | `water` |
 | średnie | 40–50 | **`floor`** — punkt odniesienia dla całej paczki |
-| jasne | 60–75 | **`wall`**, `obstacle_high`, `obstacle_low` |
+| jasne | 60–75 | **`wall`**, `obstacle_high`, `obstacle_low`, pręty kraty |
 | akcent | 70–85 | `hazard`, tylko na niewielkiej części kafla |
 
 **Twarde minimum: średnia jasność `wall` różni się od średniej jasności `floor` o co najmniej 20 punktów.** Ta różnica przechodzi przez całą paczkę — mur ma być masywny i wyraźnie odcięty od posadzki, a nie o cień jaśniejszy.
@@ -262,7 +371,7 @@ Przekonwertuj cały zestaw na skalę szarości i zmniejsz do 25%. Jeśli nie odr
 
 ## 6. Palety i opisy podbiomów
 
-Format wpisu: zdanie palety doklejane do **każdego** promptu tego podbiomu, linia kotwic jasności z sekcji 5.2, siedem opisów ról i sześć opisów dekali. Kolejne podbiomy dopisujemy poniżej w tym samym formacie.
+Format wpisu: zdanie palety doklejane do **każdego** promptu tego podbiomu, linia kotwic jasności z sekcji 5.2, siedem opisów ról, sześć opisów dekali i osiem opisów przejść. Kolejne podbiomy dopisujemy poniżej w tym samym formacie.
 
 Opis roli mówi trzy rzeczy: **co to jest**, **jak się to widzi z góry pod kątem ¾** i **jak jasne jest to względem podłogi**. Trzeciego nie pomijaj — to on decyduje, czy pokój się czyta, czy zlewa.
 
@@ -271,7 +380,7 @@ Opis roli mówi trzy rzeczy: **co to jest**, **jak się to widzi z góry pod ką
 
 `Muted cold greys and desaturated bone-beige, cold and lightless, with faint green damp staining used only as a sparse accent.`
 
-Kotwice jasności: `pit` 8, `water` 28, `floor` 45, `wall` 68, `obstacle_low` 62, `obstacle_high` 66, `hazard` 75.
+Kotwice jasności: `pit` 8, `water` 28, `floor` 45, `wall` 68, `obstacle_low` 62, `obstacle_high` 66, `hazard` 75, pręty kraty 64.
 
 - **floor** — Worn catacomb flagstones seen straight from above, irregular slabs of different sizes, wide mortar gaps, fine cracks and a film of dry grey dust. A quiet mid-grey surface, the reference value of the set: even and unremarkable, so that anything standing on it reads instantly.
 - **wall** — A thick catacomb wall of stacked stone blocks, seen from above at a slight angle so both the top course and a short south facing front edge are visible. The stone is pale bone-grey, clearly lighter and warmer than the floor, with deep near-black shadow in the mortar joints between blocks. The whole tile reads as one solid heavy mass; no outline drawn around the tile itself.
@@ -293,9 +402,13 @@ Dekale, po jednym na plik `decal_01..06.png`:
 Przejścia:
 
 - **door_ns** — A narrow catacomb doorway cut into an east-west wall, seen from above at a slight angle. The left and right eighth of the tile is the wall itself, the same grey blockwork as the wall tiles, running straight through at the same height and thickness so the wall reads as continuing behind the doorway. Between them a plain stone lintel and jambs frame an opening twelve to sixteen pixels wide with a worn threshold, the floor showing through the gap.
-- **door_ew** — The same doorway cut into a north-south wall, which on screen runs vertically and is seen from directly above. The top and bottom eighth of the tile is the same grey blockwork as the wall tiles, continuing the wall through the tile. Between them the wall is broken by a twelve to sixteen pixel gap: you look down on the flat tops of the two jambs to either side of it and on the worn threshold stones in the gap itself, with the floor showing through. Seen from above, not from the front - no arch in elevation, no door leaf facing the viewer, nothing drawn as if the doorway had been laid down on its side.
+- **door_ew** — The same doorway cut into a north-south wall, which on screen runs vertically and is seen from directly above. Only the top eight to ten pixels and the bottom eight to ten pixels are stone: the same grey blockwork as the wall tiles, spanning the full width of the tile, because that is where the wall carries on north and south. Between them runs the passage, twelve to sixteen pixels of worn threshold stones and catacomb floor at the floor's own brightness, and it runs clear from the left edge of the tile to the right edge - the chambers on either side are open and their floor flows straight into it. A two to three pixel darker line along the inner face of each stone band is the thickness of the wall seen from above. The left and right edges of the passage are fully transparent: no stone, no kerb, no sill and no frame closes it off there. A doorway framed with stone on all four sides is a hatch lying in the floor, which is the one thing this tile must not look like. Seen from above, not from the front - no arch in elevation, no door leaf facing the viewer, no dark recessed hole, nothing drawn as if the doorway had been laid down on its side.
 - **gate_ns** — A heavy catacomb gate two tiles wide in an east-west wall: a low stone arch on squat piers, rusted hinge plates, an iron-bound door standing open, floor showing through the opening. The outermost eight to twelve pixels at each end are the wall's own blockwork, at the wall's height and thickness, so the gate sits inside a continuous run of wall rather than standing free.
-- **gate_ew** — The same gate in a north-south wall, two tiles tall on screen and seen from directly above: the flat tops of the two piers to either side of the opening, the iron-bound door standing open across the gap, the floor showing through. The topmost and bottommost eight to twelve pixels carry the wall's own blockwork so the run of wall passes through it. Seen from above, not in elevation.
+- **gate_ew** — The same gate in a north-south wall, two tiles tall on screen and seen from directly above. The topmost and bottommost eight to twelve pixels carry the wall's own blockwork across the full width, so the run of wall passes through. Between them you look down on the flat tops of the two squat piers and on the catacomb floor of the gateway, which runs clear from the left edge of the image to the right edge at the floor's own brightness. The iron-bound doors stand open as thin slabs seen edge-on, swung back against the piers, each with a hard contact shadow. The left and right edges of the gateway are fully transparent - no stone, kerb or sill closes the opening off there, and no arch is drawn in elevation. Seen from above, not laid on its side.
+- **grate_ns** — A row of forged iron bars closing a gap in an east-west catacomb wall, seen from the front: the wall runs horizontally and its face is turned to the camera, so the bars are seen in elevation at their full height. Five upright bars two to three pixels wide standing the height of the tile, evenly spaced with four to six pixels of fully transparent gap between them, so the catacomb floor beyond shows through and the tile reads as something you can see and shoot through but not walk through. The topmost and bottommost five pixels are a stone and iron mounting band, a lintel above and a sill below, that the bars are set into. Pitted dark iron with rust bloom where it meets the stone, held at the pale stone's own brightness. The bar spacing runs off the left and right edges so two of these tiles side by side give one unbroken rhythm.
+- **grate_ew** — The same iron grating closing a gap in a north-south wall, which on screen runs vertically and is seen from directly above, so you are looking down on the tops of the bars. The bars are spaced along the wall, north to south, so from above they form a single vertical line of small marks running down the centre of the tile: four or five bar tops, each a rounded oval three to four pixels wide and five to six pixels tall, spaced four to six pixels apart, each with a hard dark contact shadow below it so it reads as an upright bar seen end-on. Everything else in the tile is fully transparent - the whole strip to the left of that line and the whole strip to the right of it - because the catacomb floor of the chambers on either side is what shows there. The bar tops stay in the middle twelve pixels, at least ten pixels clear of the left and right edges. Do not draw a continuous rail, band, kerb or sill of any kind running down the left or right edge, do not draw the bars as crosswise rungs reaching the left and right edges, and do not draw the grating in elevation laid on its side. Two continuous rails with rungs between them is a ladder lying flat on the floor, which is the one thing this tile must not look like.
+- **door_ns_grate** — The `door_ns` doorway with the wall to either side of it replaced by iron bars: the same opening in the same place, the same stone lintel, jambs and worn threshold, but beyond the narrow stone frame stand the upright bars of `grate_ns` in elevation, in the same rhythm and with the same transparent gaps, so the grating carries straight on through the doorway.
+- **door_ew_grate** — The same for `door_ew`, seen from above: the passage running clear from the left edge to the right edge with its worn threshold stones, the flat tops of the two stone jambs above and below it, and then, at the very top and bottom edge of the tile where `door_ew` would carry the wall's blockwork, one or two of the small rounded bar tops of `grate_ew` sitting on the tile's centre line instead, with everything to their left and right fully transparent. No crosswise rung, no rail down either edge, no stone closing the passage off at the left or right.
 
 ---
 
@@ -319,11 +432,13 @@ Zawartość paczki:
 ├── pit_blob47.png
 ├── decal_01.png … decal_06.png
 ├── door_ns.png, door_ew.png
+├── door_ns_grate.png, door_ew_grate.png
 ├── gate_ns.png, gate_ew.png
+├── grate_ns.png, grate_ew.png
 └── tiles.json
 ```
 
-20 kafli PNG 32×32 RGBA, pięć arkuszy blob47, sześć dekali, cztery przejścia i `tiles.json`. Razem 36 plików. Nazwa paczki to nazwa podbiomu.
+20 kafli PNG 32×32 RGBA, pięć arkuszy blob47, sześć dekali, osiem przejść i `tiles.json`. Razem 40 plików. Nazwa paczki to nazwa podbiomu.
 
 `tiles.json` — struktura identyczna dla każdego podbiomu, zmieniają się tylko wagi i gęstości, jeśli podbiom tego wymaga:
 
@@ -362,8 +477,12 @@ Zawartość paczki:
   "fixtures": {
     "door_ns": ["door_ns.png"],
     "door_ew": ["door_ew.png"],
+    "door_ns_grate": ["door_ns_grate.png"],
+    "door_ew_grate": ["door_ew_grate.png"],
     "gate_ns": ["gate_ns.png"],
-    "gate_ew": ["gate_ew.png"]
+    "gate_ew": ["gate_ew.png"],
+    "grate_ns": ["grate_ns.png"],
+    "grate_ew": ["grate_ew.png"]
   }
 }
 ```
@@ -394,7 +513,30 @@ Przed oddaniem zestawu:
 
 Sprawdzian nie jest teoretyczny. W pierwszej paczce katakumb ramkę miały 34 z 47 kafli arkusza muru, średnio o 10.7 poziomu ciemniejsze od wnętrza, mimo że blok stylu już wtedy zakazywał ramek — model rozumie „no border" jako brak marginesu wokół obrazka, nie jako zakaz przyciemniania skrajnych pikseli. Stąd osobny, liczbowy sprawdzian.
 
-**Kierunek patrzenia.** Zestawić `door_ns` z `door_ew` obok siebie. Pierwsze pokazuje lico muru od przodu, drugie wierzch muru z góry. Jeśli `door_ew` wygląda jak `door_ns` położony na boku — czyli widać łuk albo skrzydło w elewacji, obrócone o ćwierć obrotu — kafel jest do wygenerowania od nowa. To samo dla pary bram.
+**Kierunek patrzenia.** Zestawić `door_ns` z `door_ew` obok siebie. Pierwsze pokazuje lico muru od przodu, drugie wierzch muru z góry. Jeśli `door_ew` wygląda jak `door_ns` położony na boku — czyli widać łuk albo skrzydło w elewacji, obrócone o ćwierć obrotu — kafel jest do wygenerowania od nowa. To samo dla pary bram i dla pary krat.
+
+**Przejście na wylot.** Dla `door_ew`, `door_ew_grate` i `gate_ew` poprowadzić poziomą linię przez środek otworu, od lewej krawędzi obrazu do prawej. Linia nie ma prawa trafić w ani jeden piksel w jasności muru. Jeśli trafia, framuga jest zamknięta w pierścień i kafel jest włazem leżącym w podłodze, a nie przejściem w ścianie — do wygenerowania od nowa. Ten sam sprawdzian dla wariantów `ns`, tylko linią pionową, od górnej krawędzi do dolnej.
+
+Sprawdzian jest mechaniczny, bo właz narysowany porządnie wygląda porządnie: kamień dookoła otworu jest ładny i w pierwszej chwili czyta się jak framuga. Dopiero na mapie widać, że przejście stoi w poprzek muru i donikąd nie prowadzi.
+
+**Jasność otworu.** Zmierzyć średnią jasność pikseli w samym prześwicie każdego przejścia i porównać ją ze średnią kafli `floor`. Otwór **nie może być ciemniejszy od podłogi o więcej niż 10 punktów**. Ciemny prostokąt w środku framugi czyta się jako dziura, do której się spada, a nie jako droga, którą się idzie — i tym mocniej, im bardziej `door_ew` przypomina właz.
+
+**Prześwit kraty.** Policzyć piksele o zerowej alfie. Próg jest inny dla każdej orientacji i to jest zamierzone:
+
+| Plik | Przezroczystość | Dlaczego tyle |
+|---|---|---|
+| `grate_ns`, `door_ns_grate` | **35–55%** | widok od frontu: pręty na całą wysokość kafla, szpary między nimi |
+| `grate_ew`, `door_ew_grate` | **75–92%** | widok z góry: same czubki prętów, reszta kafla to podłoga |
+
+Poniżej progu krata jest ścianą z namalowaną kratką i nie widać przez nią nic. Sprawdzian jest liczbowy, bo na oko ciemny prześwit i ciemny metal wyglądają tak samo, a znaczą coś przeciwnego: przez kratę ma być widać podłogę i przeciwnika po drugiej stronie.
+
+**Kolumny kraty `ew`.** Dla `grate_ew` i `door_ew_grate` sprawdzić dziesięć skrajnych kolumn pikseli z lewej i dziesięć z prawej: **wszystkie muszą być w pełni przezroczyste**. Jeden nieprzezroczysty piksel w tym pasie znaczy, że kafel ma szynę i jest drabiną — do wygenerowania od nowa. To jedyny sprawdzian, który łapie ten błąd mechanicznie, bo drabina narysowana ładnie wygląda ładnie.
+
+**Rytm prętów.** Położyć dwa `grate_ns` obok siebie w poziomie, potem dwa `grate_ew` jeden pod drugim w pionie, i sprawdzić, czy rozstaw prętów przechodzi przez styk bez zgęszczenia i bez przerwy. Potem to samo z `door_ns_grate` między dwoma `grate_ns` i z `door_ew_grate` między dwoma `grate_ew`: pręty mają biec przez cały odcinek jednym rytmem, a kamienna framuga drzwi ma być jedyną przerwą.
+
+**Perspektywa kraty.** Zestawić `grate_ns` z `grate_ew` obok siebie, tak samo jak parę drzwi. Pierwsza pokazuje pręty z boku, na całą wysokość. Druga pokazuje ich czubki z góry, jako szereg drobnych znaczków biegnący z góry na dół. Jeśli obie wyglądają podobnie — jeśli w `grate_ew` widać pręty na całą długość, poprzeczne belki albo cokolwiek ciągłego wzdłuż boków — kafel jest do wygenerowania od nowa.
+
+**Krata w murze.** Dla `grate_ns` zasłonić szpary i sprawdzić, co zostaje: pas oprawy u góry i u dołu ma leżeć na tej samej wysokości i mieć tę samą grubość co pas muru na sąsiednich kaflach `wall`. Krata, która wisi wyżej albo niżej niż mur, robi uskok na każdym styku. Dla `grate_ew` tego sprawdzianu nie ma i nie wolno go sobie dorabiać: tam kamienia nie ma wcale.
 
 **Przejścia w murze.** Położyć każde drzwi i każdą bramę między dwa kafle muru i sprawdzić trzy rzeczy: czy pas muru na grafice przejścia leży na tej samej wysokości co na kaflach obok, czy ma tę samą grubość, i czy kamień jest ten sam. Zasłonić sam otwór — to, co zostaje, ma wyglądać jak kawałek muru, a nie jak rama obrazu. Generator rysuje sąsiednie kafle muru jako biegnące **w stronę** przejścia, więc każdy uskok na styku widać od razu.
 
@@ -416,7 +558,7 @@ Paczka trafia do generatora pokoi przez wskazanie **katalogu**. Ta sekcja opisuj
 
 ### 9.1. Struktura katalogu
 
-Dokładnie 36 plików, **płasko**, bez podkatalogów:
+Dokładnie 40 plików, **płasko**, bez podkatalogów:
 
 ```
 <podbiom>/
@@ -432,13 +574,15 @@ Dokładnie 36 plików, **płasko**, bez podkatalogów:
 ├── pit_blob47.png
 ├── decal_01.png … decal_06.png
 ├── door_ns.png  door_ew.png
+├── door_ns_grate.png  door_ew_grate.png
 ├── gate_ns.png  gate_ew.png
+├── grate_ns.png  grate_ew.png
 └── tiles.json
 ```
 
 - Nazwy plików **dosłownie takie jak wyżej**: małe litery, podkreślenia, numeracja dwucyfrowa od `01`, rozszerzenie `.png`. Bez spacji, polskich znaków, nawiasów, sufiksów typu `_v2` czy `_final`.
 - Nazwa katalogu to nazwa podbiomu, małymi literami, bez spacji.
-- ZIP zawiera **tylko ten jeden katalog i tylko te 36 plików**. Bez `README`, bez `palette.gpl`, bez podglądów, bez arkuszy roboczych i bez masek pomocniczych. Bez zagnieżdżenia typu `<podbiom>/<podbiom>/`.
+- ZIP zawiera **tylko ten jeden katalog i tylko te 40 plików**. Bez `README`, bez `palette.gpl`, bez podglądów, bez arkuszy roboczych i bez masek pomocniczych. Bez zagnieżdżenia typu `<podbiom>/<podbiom>/`.
 
 ### 9.2. Parametry plików graficznych
 
@@ -447,8 +591,9 @@ Dokładnie 36 plików, **płasko**, bez podkatalogów:
 | 20 kafli | PNG, dokładnie **32×32** px, **RGBA 8-bit** |
 | 3 arkusze | PNG, dokładnie **256×192** px, **RGBA 8-bit** |
 | 6 dekali | PNG, dokładnie **32×32** px, **RGBA 8-bit**, przezroczyste tło |
-| 2 drzwi | PNG, dokładnie **32×32** px, **RGBA 8-bit**, przezroczyste tło |
+| 4 drzwi | PNG, dokładnie **32×32** px, **RGBA 8-bit**, przezroczyste tło |
 | 2 bramy | PNG, **64×32** (`gate_ns`) i **32×64** (`gate_ew`), **RGBA 8-bit**, przezroczyste tło |
+| 2 kraty | PNG, dokładnie **32×32** px, **RGBA 8-bit**, przezroczyste prześwity między prętami |
 
 Kanał alfa obowiązkowy w każdym pliku, także tam, gdzie obraz jest w pełni nieprzezroczysty. Bez palety indeksowanej, bez skali szarości, bez 16 bitów na kanał. Rozmiar musi się zgadzać co do piksela — 31×32 albo 33×33 to błąd, nie zaokrąglenie.
 
@@ -487,7 +632,17 @@ Kodowanie **UTF-8 bez BOM**, końce linii LF, bez komentarzy i bez przecinków n
     { "file": "decal_04.png", "on": "floor", "density": 0.03 },
     { "file": "decal_05.png", "on": "wall",  "density": 0.12 },
     { "file": "decal_06.png", "on": "water", "density": 0.10 }
-  ]
+  ],
+  "fixtures": {
+    "door_ns": ["door_ns.png"],
+    "door_ew": ["door_ew.png"],
+    "door_ns_grate": ["door_ns_grate.png"],
+    "door_ew_grate": ["door_ew_grate.png"],
+    "gate_ns": ["gate_ns.png"],
+    "gate_ew": ["gate_ew.png"],
+    "grate_ns": ["grate_ns.png"],
+    "grate_ew": ["grate_ew.png"]
+  }
 }
 ```
 
@@ -496,13 +651,13 @@ Struktura jest **identyczna dla każdego podbiomu** — skopiuj plik i zmieniaj 
 Zasady, których nie wolno naruszyć:
 
 - `tileSize` pisane **camelCase**. Nie `tile_size`, nie `size`, nie `tile`.
-- Klucze w `roles` to **wyłącznie siedem ról kafli**: `floor`, `wall`, `obstacle_low`, `obstacle_high`, `pit`, `water`, `hazard`. Wszystkie siedem obowiązkowo, każda z pełnym kompletem wariantów z sekcji 4.
+- Klucze w `roles` to **wyłącznie siedem ról kafli**: `floor`, `wall`, `obstacle_low`, `obstacle_high`, `pit`, `water`, `hazard`. Wszystkie siedem obowiązkowo, każda z pełnym kompletem wariantów z sekcji 4. `grate` jest ósmą rolą kafla, ale nie ma kafli płaskich i w `roles` się **nie pojawia** — jej grafiki siedzą w `fixtures`.
 - **Zakazane klucze i wartości:** `deco`, `overlay`, `ground`, `blocking`, `void` jako role; `textures`, `objects`, `weight`, `light`, `palette`, `blob`, `neighbor_bits`, `wall_face_height` jako klucze. Nazwy warstw edytora nie są rolami kafli.
 - Wartości w `roles` to **tablice wariantów**, w kolejności numeracji. Wariant to nazwa pliku albo obiekt `{ "file": "...", "weight": n }`, gdzie `weight` jest liczbą całkowitą 1–8. Obie formy można mieszać w jednej tablicy. Ścieżki względne do katalogu paczki, bez `./`, bez podkatalogów, bez ukośników.
 - Każdy plik wymieniony w `tiles.json` musi istnieć w katalogu, i odwrotnie — każdy PNG w katalogu musi być wymieniony w `tiles.json`.
 - W `blob47` dozwolone są wyłącznie klucze `wall`, `water` i `pit`. Każdy ma pole `masks` z dokładnie 47 pozycjami oraz arkusze: `sheets` z tablicą nazw przy `wall` i `water`, `sheet` z jedną nazwą przy `pit`. Obie formy czyta ten sam kod, więc `sheet` dalej działa w starszych paczkach — nowe generujemy według powyższego.
 - `decals` to tablica obiektów `{ "file", "on", "density" }` z opcjonalnym `jitter`. `on` musi być rolą kafla, `density` liczbą z przedziału (0, 1]. Gęstości powyżej `0.15` traktuj jako błąd projektowy, nie jako mocniejszy efekt.
-- `fixtures` ma dokładnie cztery klucze: `door_ns`, `door_ew`, `gate_ns`, `gate_ew`, każdy z nazwą pliku albo tablicą wariantów. Inne klucze są pomijane z notatką.
+- `fixtures` ma dokładnie osiem kluczy: `door_ns`, `door_ew`, `door_ns_grate`, `door_ew_grate`, `gate_ns`, `gate_ew`, `grate_ns`, `grate_ew`, każdy z nazwą pliku albo tablicą wariantów. Inne klucze są pomijane z notatką. Brak `grate_ns` / `grate_ew` nie psuje wczytania — kraty rysują się wtedy jednolitym szarym paskiem, czyli tak samo nieprzezroczyście jak wygląda źle zrobiona krata, i tego właśnie nie wolno pomylić przy kontroli.
 - `jitter` to ułamek kafla, o jaki dekal może odsunąć się od środka: domyślnie `0.22`, przycinane do przedziału 0–0,5. `0` przykleja dekale do siatki i zwykle jest błędem; wartości powyżej `0.3` wypychają je na sąsiednie kafle.
 
 ### 9.4. Kolejność kafli w arkuszu
@@ -529,7 +684,7 @@ Kolejność w tablicy jest **rosnąca** i podana wyżej dosłownie. Nie sortuj i
 
 Każdy punkt jest sprawdzalny mechanicznie. Sprawdź wszystkie, zanim oddasz paczkę.
 
-1. W katalogu jest dokładnie 36 plików i zero podkatalogów.
+1. W katalogu jest dokładnie 40 plików i zero podkatalogów.
 2. Nazwy plików zgadzają się co do znaku z listą z 9.1.
 3. Każdy z 20 kafli i każdy z 6 dekali ma 32×32 px, wszystkie pięć arkuszy 256×192 px, wszystko w RGBA.
 4. `tiles.json` parsuje się jako poprawny JSON i nie zaczyna się od BOM-u.
@@ -541,11 +696,15 @@ Każdy punkt jest sprawdzalny mechanicznie. Sprawdź wszystkie, zanim oddasz pac
 10. Ostatnia komórka każdego z pięciu arkuszy, czyli (224,160), jest w pełni przezroczysta.
 11. Żaden dekal nie dotyka krawędzi kafla i mieści się w środkowych 60% kwadratu, a jego `density` mieści się w 0,03–0,15.
 12. Suma gęstości dekali przypisanych do jednej roli nie przekracza `0.25`.
-13. Przejścia mają właściwe rozmiary: drzwi 32×32, `gate_ns` 64×32, `gate_ew` 32×64, wszystkie z przezroczystym tłem poza framugą.
-14. Średnia jasność kafli `wall` różni się od średniej jasności kafli `floor` o co najmniej 20 punktów w skali 0–100, a każda rola mieści się w swoim paśmie z sekcji 5.2.
-15. W żadnym kaflu skrajny pierścień pikseli nie jest ciemniejszy od pierścienia obok o więcej niż 8 poziomów — poza krawędziami arkusza blob47, po których materiał się urywa.
-16. Wszystkie warianty jednej roli mają identyczne piksele na każdej z czterech krawędzi, więc dowolne dwa dają się położyć obok siebie bez przerwanej fugi.
-17. `wall_blob47_a` i `wall_blob47_b` — i tak samo para wodna — są pocięte tak samo i trzymają maski w tej samej kolejności.
+13. Przejścia mają właściwe rozmiary: cztery drzwi i dwie kraty 32×32, `gate_ns` 64×32, `gate_ew` 32×64, wszystkie z przezroczystym tłem poza framugą.
+14. `grate_ns` i `door_ns_grate` mają 35–55% powierzchni kafla o zerowej alfie, a `grate_ew` i `door_ew_grate` 75–92%. Te przezroczyste piksele układają się w równo rozstawione prześwity między prętami, a nie w tło dookoła obiektu.
+15. W `grate_ew` i `door_ew_grate` dziesięć skrajnych kolumn pikseli z lewej i dziesięć z prawej jest w pełni przezroczystych — żadnej szyny, oprawy ani progu wzdłuż boków, żadnego pręta dotykającego bocznej krawędzi. Kafel z szynami jest drabiną, nie kratą.
+16. W `door_ew`, `door_ew_grate` i `gate_ew` pozioma linia poprowadzona przez środek otworu dochodzi od lewej krawędzi do prawej, nie trafiając w żaden piksel w jasności muru, a sam otwór nie jest ciemniejszy od kafli `floor` o więcej niż 10 punktów. Framuga zamknięta z czterech stron albo ciemna wnęka w środku znaczy właz w podłodze, nie przejście w ścianie.
+17. Rozstaw prętów przechodzi przez krawędź kafla: dwie kraty tej samej orientacji położone wzdłuż muru — `ns` w poziomie, `ew` w pionie — dają jeden rytm, a `door_*_grate` wstawione między nie nie zgęszcza go ani nie rozrywa.
+18. Średnia jasność kafli `wall` różni się od średniej jasności kafli `floor` o co najmniej 20 punktów w skali 0–100, a każda rola mieści się w swoim paśmie z sekcji 5.2.
+19. W żadnym kaflu skrajny pierścień pikseli nie jest ciemniejszy od pierścienia obok o więcej niż 8 poziomów — poza krawędziami arkusza blob47, po których materiał się urywa, i poza kratami, których brzeg jest przezroczysty.
+20. Wszystkie warianty jednej roli mają identyczne piksele na każdej z czterech krawędzi, więc dowolne dwa dają się położyć obok siebie bez przerwanej fugi.
+21. `wall_blob47_a` i `wall_blob47_b` — i tak samo para wodna — są pocięte tak samo i trzymają maski w tej samej kolejności.
 
 ### 9.6. Co się dzieje, gdy coś się nie zgadza
 
@@ -561,7 +720,10 @@ Dla przypomnienia, jak wygląda awaria po stronie generatora, gdy któryś punkt
 | Kafel inny niż 32×32 | wpasowany w kafel i dosunięty do dolnej krawędzi, czyli zwykle źle |
 | `masks` krótsze lub dłuższe niż liczba komórek | autotiling wyłączony dla tej roli |
 | Brak `blob47` | ściany, woda i przepaść rysowane pojedynczym kaflem, bez narożników |
-| Brak `fixtures` | drzwi i bramy rysowane jako kolorowa poprzeczka w otworze |
+| Brak `fixtures` | drzwi, bramy i kraty rysowane jako kolorowa poprzeczka w otworze |
+| Krata bez przezroczystych prześwitów | wczyta się i wygląda poprawnie, ale zasłania to, co gracz ma przez nią widzieć |
+| `grate_ew` narysowana jako drabina | wczyta się bez słowa skargi; w grze pionowe kraty wyglądają jak drabina leżąca na podłodze |
+| `door_ew` albo `gate_ew` z kamieniem dookoła otworu | wczyta się bez słowa skargi; w grze pionowe przejścia wyglądają jak właz albo klapa w podłodze |
 | Brama w rozmiarze 32×32 | rozciągnięta na dwa kafle, czyli zniekształcona |
 | `weight` spoza 1–8 | przycięte do zakresu, proporcje inne niż zamierzone |
 | Dekal bez przezroczystego tła | kwadratowe łaty na podłodze |

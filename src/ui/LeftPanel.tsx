@@ -9,7 +9,7 @@ import {
   MIN_MAP,
   type MapParams,
 } from '../map/types';
-import { profileById, SUBBIOME_PROFILES } from '../gen/profiles';
+import { MAP_PROFILES, profileById, SUBBIOME_PROFILES } from '../gen/profiles';
 import {
   LAYOUT_STYLES,
   MAX_SIZE,
@@ -96,7 +96,8 @@ export function LeftPanel(props: LeftPanelProps) {
             Layout: {props.lastRun.resolved.style}, claustrophobia{' '}
             {props.lastRun.resolved.claustrophobia}%
             <br />
-            Rolled: obstacles {props.lastRun.resolved.obstacleDensity}%, water{' '}
+            Rolled: obstacles {props.lastRun.resolved.obstacleDensity}%, grates{' '}
+            {props.lastRun.resolved.grates}%, water{' '}
             {props.lastRun.resolved.water.enabled
               ? `${props.lastRun.resolved.water.density}%`
               : 'off'}
@@ -236,12 +237,14 @@ export function LeftPanel(props: LeftPanelProps) {
             <Field label="Profile">
               <Select<string>
                 value={props.mapParams.profile}
-                options={SUBBIOME_PROFILES.map((p) => ({ value: p.id, label: p.label }))}
+                options={MAP_PROFILES.map((p) => ({ value: p.id, label: p.label }))}
                 onChange={(v) => props.setMapParams((prev) => ({ ...prev, profile: v }))}
               />
             </Field>
             <p className="note">
-              Every room of a map belongs to this subbiome. Layout style and claustrophobia are
+              Every room of a map belongs to this subbiome. Only real subbiomes are offered here:
+              "no profile" is for working on a single room with the ranges opened up, and a map
+              built from it would be a dungeon of nowhere in particular. Layout style and claustrophobia are
               laid out across the whole grid at once rather than rolled room by room: no two rooms
               you can walk between are the same kind of space, and each option still gets about the
               same share of the map. The dungeon gets exactly one entrance and one exit, both
@@ -411,6 +414,24 @@ export function LeftPanel(props: LeftPanelProps) {
             />
           </Field>
         )}
+        <Toggle
+          checked={params.grates.auto}
+          label="Grates from the seed"
+          onChange={(v) => setParams((p) => ({ ...p, grates: { ...p.grates, auto: v } }))}
+        />
+        {params.grates.auto ? null : (
+          <Field label="Grates" hint="share of the walls between chambers">
+            <Slider
+              value={params.grates.value}
+              onChange={(v) => setParams((p) => ({ ...p, grates: { ...p.grates, value: v } }))}
+            />
+          </Field>
+        )}
+        <p className="note">
+          A grate is a stretch of a wall turned to bars: you see through it and shoot through it,
+          you do not walk through it. Only rooms cut into sub-rooms have the walls to put them in,
+          so the other layouts ignore this.
+        </p>
       </Section>
 
       <Section title="Exits">

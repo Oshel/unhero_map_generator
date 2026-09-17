@@ -12,6 +12,7 @@ import { validateRoom } from '../validate/validate';
 import { erodeOuterRock, syncRoomsToMap } from './rock';
 import { assignFlavours, flavourClashes } from './variety';
 import type { CheckResult } from '../validate/rules';
+import type { Fixture } from '../render/drawRoom';
 import {
   MAX_CELL,
   MAX_MAP_ATTEMPTS,
@@ -714,13 +715,17 @@ export function mapToDoc(map: MapDoc, meta: PrefabMeta): RoomDoc {
  * Every door and gate on the map. Doors belong to the sub-rooms inside a room;
  * the openings between rooms are plain two-tile gaps with nothing in them.
  */
-export function mapFixtures(
-  map: MapDoc,
-): Array<{ kind: 'door' | 'gate'; orientation: 'ns' | 'ew'; x: number; y: number }> {
-  const out: Array<{ kind: 'door' | 'gate'; orientation: 'ns' | 'ew'; x: number; y: number }> = [];
+export function mapFixtures(map: MapDoc): Fixture[] {
+  const out: Fixture[] = [];
   for (const room of map.rooms) {
     for (const door of room.doc.doors) {
-      out.push({ kind: 'door', orientation: door.axis, x: room.x + door.x, y: room.y + door.y });
+      out.push({
+        kind: 'door',
+        orientation: door.axis,
+        x: room.x + door.x,
+        y: room.y + door.y,
+        grated: door.grated,
+      });
     }
   }
   for (const portal of map.portals) {

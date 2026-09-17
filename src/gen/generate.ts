@@ -83,9 +83,14 @@ function insideOf(size: Size, side: ExitSide, offset: number, step: number): [nu
  * Somewhere the player can end up standing. Furniture counts: a crate against
  * the wall is not a reason to dig a tunnel round it, it is a crate to move out
  * of the doorway, and the opening pass clears it.
+ *
+ * A grate does not count. It is structure rather than furniture - the wall
+ * between two chambers, in bars instead of stone - so an exit offered onto one
+ * would be an exit opening into the side of a grate.
  */
 function isEnterable(layers: Layers, x: number, y: number): boolean {
-  return layers.blocking[y][x] !== 'wall' && layers.ground[y][x] === 'floor';
+  const blocking = layers.blocking[y][x];
+  return blocking !== 'wall' && blocking !== 'grate' && layers.ground[y][x] === 'floor';
 }
 
 /**
@@ -277,6 +282,68 @@ function sealPockets(layers: Layers, size: Size, exits: Exit[]): void {
   }
 }
 
+/**
+ * Put back as stone every grate that no longer has anything to look at.
+ *
+ * The style cuts its bars into walls that had a chamber on either side, and
+ * then the pocket pass walls in whatever no exit can reach - so a grate can be
+ * left facing the rock that used to be a room. Bars onto solid rock are worse
+ * than a plain wall: they promise a space behind them that is not there.
+ *
+ * The doors are settled in the same pass, because the rule the art depends on
+ * is all or nothing: a doorway has bars on both sides of it or on neither, and
+ * a jamb left on its own goes back to stone with the rest.
+ */
+function healGrates(layers: Layers, size: Size, doors: RoomDoor[]): void {
+  const isGrate = (x: number, y: number): boolean =>
+    x >= 0 && y >= 0 && x < size.w && y < size.h && layers.blocking[y][x] === 'grate';
+  /** Somewhere to stand, furniture and all - anything that is not solid wall. */
+  const chamber = (x: number, y: number): boolean => {
+    if (x < 0 || y < 0 || x >= size.w || y >= size.h) return false;
+    const blocking = layers.blocking[y][x];
+    return blocking !== 'wall' && blocking !== 'grate';
+  };
+  const toStone = (x: number, y: number): void => {
+    layers.blocking[y][x] = 'wall';
+    layers.ground[y][x] = 'floor';
+  };
+
+  // One pass is enough: a grate never counted as a chamber, so turning one back
+  // into stone cannot take the view away from the next.
+  const blinded: Array<[number, number]> = [];
+  for (let y = 0; y < size.h; y++) {
+    for (let x = 0; x < size.w; x++) {
+      if (layers.blocking[y][x] !== 'grate') continue;
+      const across =
+        (chamber(x, y - 1) && chamber(x, y + 1)) || (chamber(x - 1, y) && chamber(x + 1, y));
+      if (!across) blinded.push([x, y]);
+    }
+  }
+  for (const [x, y] of blinded) toStone(x, y);
+
+  for (const door of doors) {
+    const jambs: Array<[number, number]> =
+      door.axis === 'ns'
+        ? [
+            [door.x - 1, door.y],
+            [door.x + 1, door.y],
+          ]
+        : [
+            [door.x, door.y - 1],
+            [door.x, door.y + 1],
+          ];
+    const barred = jambs.filter(([x, y]) => isGrate(x, y));
+    if (barred.length === 2) {
+      door.grated = true;
+      continue;
+    }
+    // One side only: there is no art that joins bars to blockwork across a
+    // door frame, so the odd jamb goes back to stone.
+    for (const [x, y] of barred) toStone(x, y);
+    delete door.grated;
+  }
+}
+
 /** A door is a hole in a wall: both tiles across the opening have to be solid. */
 function hasJambs(layers: Layers, size: Size, door: RoomDoor): boolean {
   const jambs: Array<[number, number]> =
@@ -321,6 +388,8 @@ export function finishRoom(
   sealPockets(layers, size, exits);
   // Sealing turns pockets into wall, so the drying has to come after it.
   dryUnderBlocking(layers, size);
+  // And so does the grate pass: sealing is what takes their view away.
+  healGrates(layers, size, interior.doors);
 
   const markers = placeMarkers(layers, size, exits, params.markers, rng);
 

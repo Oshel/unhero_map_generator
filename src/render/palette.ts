@@ -4,6 +4,7 @@ import type { MarkerKind, TileRole } from '../types/prefab';
 export const ROLE_COLORS: Record<TileRole, string> = {
   floor: '#3a3f47',
   wall: '#20252d',
+  grate: '#4e5560',
   obstacle_low: '#6b5738',
   obstacle_high: '#8a6a3a',
   pit: '#0b0d10',
@@ -15,6 +16,7 @@ export const ROLE_COLORS: Record<TileRole, string> = {
 export const ROLE_LABELS: Record<TileRole, string> = {
   floor: 'Floor',
   wall: 'Wall',
+  grate: 'Grate (see and shoot through)',
   obstacle_low: 'Obstacle (low)',
   obstacle_high: 'Obstacle (high)',
   pit: 'Pit',
@@ -47,6 +49,8 @@ export const CHUNK_COLOR = 'rgba(255,255,255,0.18)';
 export const EXIT_COLOR = '#49c16a';
 export const DOOR_COLOR = '#c08a3e';
 export const GATE_COLOR = '#d9b25a';
+/** Bars in a wall, when the pack brought no art for them. */
+export const GRATE_COLOR = '#7f8b99';
 export const PROBLEM_COLOR = 'rgba(224,68,68,0.45)';
 /** The straight run from the entrance gate to the exit. */
 export const ROUTE_COLOR = '#63d0ff';

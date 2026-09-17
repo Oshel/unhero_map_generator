@@ -1,6 +1,7 @@
 import type { Exit, ExitSide, ExitType, ExitWidth, RoomRole, Size } from '../types/prefab';
 import type { Rng } from '../core/rng';
 import {
+  DEFAULT_GRATES,
   DEFAULT_SUBROOM_FLOOR,
   EXIT_WIDTH,
   MAX_GEN_ATTEMPTS,
@@ -12,6 +13,7 @@ import {
 import { DEFAULT_PROFILE_ID, profileById, type SubbiomeProfile } from './profiles';
 
 export {
+  DEFAULT_GRATES,
   DEFAULT_SUBROOM_FLOOR,
   EXIT_WIDTH,
   MAX_GEN_ATTEMPTS,
@@ -96,6 +98,12 @@ export interface GenParams {
    * side. Bigger means fewer, roomier chambers; smaller means a warren.
    */
   minSubRoom: number;
+  /**
+   * How much of the wall between one sub-room and the next is bars rather than
+   * stone, 0..100. Only `rooms_in_room` has that wall to give: the other styles
+   * scatter obstacles into an open room and have nothing to cut a grate into.
+   */
+  grates: AutoNumber;
   water: LiquidParams;
   pits: LiquidParams;
   markers: MarkerCounts;
@@ -130,6 +138,7 @@ export function defaultParams(): GenParams {
     claustrophobia: { auto: true, value: 60 },
     style: { auto: true, value: 'rooms_in_room' },
     minSubRoom: DEFAULT_SUBROOM_FLOOR,
+    grates: { auto: true, value: DEFAULT_GRATES },
     water: { auto: true, enabled: false, density: 15 },
     pits: { auto: true, enabled: false, density: 15 },
     markers: { spawn: 4, loot: 2, prop: 6 },
@@ -142,6 +151,7 @@ export interface ResolvedParams {
   style: LayoutStyle;
   claustrophobia: number;
   obstacleDensity: number;
+  grates: number;
   water: { enabled: boolean; density: number };
   pits: { enabled: boolean; density: number };
   /** Which of them came from the seed rather than the panel. */
@@ -150,6 +160,7 @@ export interface ResolvedParams {
     style: boolean;
     claustrophobia: boolean;
     obstacleDensity: boolean;
+    grates: boolean;
     water: boolean;
     pits: boolean;
   };
@@ -157,6 +168,8 @@ export interface ResolvedParams {
 
 /** Ranges the seed rolls within, where the subbiome profile has nothing to say. */
 export const AUTO_RANGES = {
+  /** Most rooms get a grate or two; a few get none and a few are half bars. */
+  grates: [0, 55] as const,
   waterChance: 0.4,
   waterDensity: [10, 45] as const,
   pitChance: 0.3,
@@ -204,11 +217,19 @@ export function resolveParams(params: GenParams, rng: Rng, exits: Exit[]): Resol
       : { enabled: false, density: 0 }
     : { enabled: params.pits.enabled, density: params.pits.density };
 
+  // Rolled last on purpose: every draw before this one predates grates, and
+  // taking a number out of the middle of the stream would move every seed's
+  // water and pits along with it.
+  const grates = params.grates.auto
+    ? rng.int(AUTO_RANGES.grates[0], AUTO_RANGES.grates[1])
+    : params.grates.value;
+
   return {
     exits,
     style,
     claustrophobia,
     obstacleDensity,
+    grates,
     water,
     pits,
     rolled: {
@@ -216,6 +237,7 @@ export function resolveParams(params: GenParams, rng: Rng, exits: Exit[]): Resol
       style: params.style.auto,
       claustrophobia: params.claustrophobia.auto,
       obstacleDensity: params.obstacleDensity.auto,
+      grates: params.grates.auto,
       water: params.water.auto,
       pits: params.pits.auto,
     },

@@ -731,6 +731,108 @@ for (const style of LAYOUT_STYLES) {
   if (stubs / doors > 0.1) failures++;
 }
 
+
+// Grates: bars in the wall between one chamber and the next. They have to sit
+// in a real wall - somewhere to stand on both sides - and they have to keep the
+// promise the door art depends on: a doorway is flanked by bars on both sides
+// or on neither.
+{
+  let rooms = 0;
+  let grates = 0;
+  let roomsWithGrates = 0;
+  let ontoRock = 0;
+  let halfGratedDoors = 0;
+  let gratedDoors = 0;
+  let unreachable = 0;
+  for (let i = 0; i < 60; i++) {
+    const base = defaultParams();
+    const params = {
+      ...base,
+      style: { auto: false, value: 'rooms_in_room' as const },
+      size: { w: 48, h: 32 },
+      grates: { auto: false, value: 60 },
+    };
+    const { doc, report } = generateRoom(params, 8000 + i, defaultMeta());
+    rooms++;
+    if (!report.ok) unreachable++;
+    const { w, h } = doc.size;
+    // Part of a chamber: open floor, or floor with a crate standing on it. The
+    // clutter pass runs after the grates and is free to put one against them.
+    const chamber = (x: number, y: number): boolean => {
+      if (x < 0 || y < 0 || x >= w || y >= h) return false;
+      const blocking = doc.layers.blocking[y][x];
+      return blocking !== 'wall' && blocking !== 'grate';
+    };
+    const isGrate = (x: number, y: number): boolean =>
+      x >= 0 && y >= 0 && x < w && y < h && doc.layers.blocking[y][x] === 'grate';
+    let here = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (doc.layers.blocking[y][x] !== 'grate') continue;
+        here++;
+        // Bars you cannot see anything through are just an expensive wall.
+        const across =
+          (chamber(x, y - 1) && chamber(x, y + 1)) || (chamber(x - 1, y) && chamber(x + 1, y));
+        if (!across) ontoRock++;
+      }
+    }
+    grates += here;
+    if (here > 0) roomsWithGrates++;
+    for (const d of doc.doors) {
+      const jambs: Array<[number, number]> =
+        d.axis === 'ns'
+          ? [
+              [d.x - 1, d.y],
+              [d.x + 1, d.y],
+            ]
+          : [
+              [d.x, d.y - 1],
+              [d.x, d.y + 1],
+            ];
+      const barred = jambs.filter(([jx, jy]) => isGrate(jx, jy)).length;
+      if (barred === 1) halfGratedDoors++;
+      if (d.grated) {
+        gratedDoors++;
+        if (barred !== 2) halfGratedDoors++;
+      } else if (barred === 2) {
+        // Bars on both sides but the door never said so: the art would come out
+        // as blockwork meeting bars.
+        halfGratedDoors++;
+      }
+    }
+  }
+  console.log(
+    `grates: ${(grates / rooms).toFixed(1)} per room in ${roomsWithGrates}/${rooms} rooms, onto rock ${ontoRock}, ${gratedDoors} grated door(s), mismatched ${halfGratedDoors}, rooms failing validation ${unreachable}`,
+  );
+  // A grate never opens a way through, so nothing it does can strand a tile.
+  if (unreachable > 0 || halfGratedDoors > 0) failures++;
+  // A few lose their view afterwards: the pocket pass fills in a chamber no
+  // exit can reach, and the bars end up facing the rock it left behind. A tenth
+  // is incidental; more than that means they are being cut into the wrong walls.
+  if (ontoRock / Math.max(1, grates) > 0.1) failures++;
+  if (roomsWithGrates < rooms / 2 || grates / rooms < 2) failures++;
+}
+
+// Turning grates off has to actually turn them off.
+{
+  const base = defaultParams();
+  let any = 0;
+  for (let i = 0; i < 20; i++) {
+    const { doc } = generateRoom(
+      {
+        ...base,
+        style: { auto: false, value: 'rooms_in_room' as const },
+        grates: { auto: false, value: 0 },
+      },
+      9000 + i,
+      defaultMeta(),
+    );
+    for (const row of doc.layers.blocking) for (const cell of row) if (cell === 'grate') any++;
+  }
+  console.log(`grates off: ${any} grate tile(s) over 20 rooms`);
+  if (any > 0) failures++;
+}
+
 // The smallest sub-room is a setting, so it has to show: raise the floor and the
 // same room has to come back with fewer, larger chambers.
 {
@@ -878,11 +980,29 @@ const sameSeed = prefabToJson(toPrefab(a.doc)) === prefabToJson(toPrefab(b.doc))
 console.log(`determinism: ${sameSeed ? 'ok' : 'BROKEN'}`);
 if (!sameSeed) failures++;
 
-// Round trip: export, import, export again.
-const json = prefabToJson(toPrefab(a.doc));
-const roundTrip = prefabToJson(toPrefab(parsePrefab(json)));
-console.log(`round trip: ${roundTrip === json ? 'ok' : 'BROKEN'}`);
-if (roundTrip !== json) failures++;
+// Round trip: export, import, export again. Taken off a room with grates in it,
+// so the doorways and the flag that says which of them stand in bars go too -
+// the tiles alone would round-trip happily with both of them dropped.
+const grated = generateRoom(
+  {
+    ...defaultParams(),
+    size: { w: 48, h: 32 },
+    style: { auto: false, value: 'rooms_in_room' as const },
+    grates: { auto: false, value: 70 },
+  },
+  4242,
+  defaultMeta(),
+);
+const json = prefabToJson(toPrefab(grated.doc));
+const reread = parsePrefab(json);
+const roundTrip = prefabToJson(toPrefab(reread)) === json;
+const keptDoors =
+  reread.doors.length === grated.doc.doors.length &&
+  reread.doors.filter((d) => d.grated).length === grated.doc.doors.filter((d) => d.grated).length;
+console.log(
+  `round trip: ${roundTrip && keptDoors ? 'ok' : 'BROKEN'} (${reread.doors.length} doors, ${reread.doors.filter((d) => d.grated).length} of them grated)`,
+);
+if (!roundTrip || !keptDoors) failures++;
 
 // Tileset manifests: both the tool's own shape and the game asset-pack shape.
 {

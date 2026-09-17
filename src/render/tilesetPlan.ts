@@ -49,16 +49,34 @@ export interface DecalPlan {
 }
 
 /**
- * Fixtures are not tiles: they are the thing you walk through. A door fills one
- * tile of a room wall, a gate spans the two tiles of a map entrance.
+ * Fixtures are not tiles: they are what stands in a gap in the wall. A door
+ * fills one tile of a room wall, a gate spans the two tiles of a map entrance,
+ * and a grate is the tile of bars that a stretch of wall turns into.
+ *
+ * A grate is a tile role as far as the game is concerned, but its art depends
+ * on which way the wall runs, which no flat variant list can say - so it is
+ * drawn like a door, from the key that names its orientation. `door_*_grate` is
+ * the door with bars rather than blockwork on both sides of it.
  */
-export type FixtureKey = 'door_ns' | 'door_ew' | 'gate_ns' | 'gate_ew';
+export type FixtureKey =
+  | 'door_ns'
+  | 'door_ew'
+  | 'door_ns_grate'
+  | 'door_ew_grate'
+  | 'gate_ns'
+  | 'gate_ew'
+  | 'grate_ns'
+  | 'grate_ew';
 
 export const FIXTURE_KEYS: readonly FixtureKey[] = [
   'door_ns',
   'door_ew',
+  'door_ns_grate',
+  'door_ew_grate',
   'gate_ns',
   'gate_ew',
+  'grate_ns',
+  'grate_ew',
 ] as const;
 
 export interface TilesetPlan {

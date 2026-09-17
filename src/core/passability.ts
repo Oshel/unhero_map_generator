@@ -36,6 +36,22 @@ export function isBlocking(role: TileRole): boolean {
   return role !== 'void';
 }
 
+/**
+ * What a blocking tile stops besides movement.
+ *
+ * A `grate` is the odd one out and the reason these two exist: it is a wall you
+ * cannot walk through but can see and shoot through, so a fight carries across
+ * it. `obstacle_low` is waist high - you see over it, but a shot fired at that
+ * height still hits it. Everything else stops all three.
+ */
+export function blocksSight(role: TileRole): boolean {
+  return isBlocking(role) && role !== 'grate' && role !== 'obstacle_low';
+}
+
+export function blocksProjectiles(role: TileRole): boolean {
+  return isBlocking(role) && role !== 'grate';
+}
+
 /** `true` where an actor can stand. Flat array indexed y * w + x. */
 export function passabilityMask(
   layers: Layers,

@@ -115,6 +115,9 @@ decision, made by the subbiome profile, not something validation should police.
 The preview draws flat colours per role by default. "Load folder" accepts a
 directory containing `tiles.json` plus the PNGs. Two manifest shapes are read.
 
+How a pack is produced in the first place - every tile, its prompt and the
+checks it has to pass - is [docs/tileset-prompts.md](docs/tileset-prompts.md).
+
 **Own shape** - one square PNG per variant, role to files:
 
 ```json
@@ -172,6 +175,12 @@ present), looked up in `masks`, and the array position is the tile index -
 `sx = (index % columns) * tileSize`, `sy = floor(index / columns) * tileSize`.
 Outside the room counts as more wall, so the border reads as solid; for other
 roles it counts as empty.
+
+A role may name several sheets - `{ "wall": { "sheets": ["a.png", "b.png"],
+"masks": [...] } }` - cut the same way and holding the same masks in the same
+order. The sheet is then picked per tile from the tile position, so a long wall
+stops reading as one face repeated. A sheet cut differently from the first is
+skipped with a note rather than quietly meaning something else.
 
 Tiles are always previewed at 32 px times the zoom; `tileSize` only splits blob
 sheets. Nothing is remembered between sessions, so pick the folder again after a

@@ -1,0 +1,42 @@
+{
+  "tileSize": 32,
+  "roles": {
+    "floor": [
+      { "file": "floor_01.png", "weight": 6 },
+      { "file": "floor_02.png", "weight": 6 },
+      { "file": "floor_03.png", "weight": 6 },
+      { "file": "floor_04.png", "weight": 6 },
+      { "file": "floor_05.png", "weight": 1 },
+      { "file": "floor_06.png", "weight": 1 }
+    ],
+    "wall": ["wall_01.png", "wall_02.png", "wall_03.png"],
+    "obstacle_low": ["obstacle_low_01.png", "obstacle_low_02.png", "obstacle_low_03.png"],
+    "obstacle_high": ["obstacle_high_01.png", "obstacle_high_02.png"],
+    "pit": ["pit_01.png", "pit_02.png"],
+    "water": ["water_01.png", "water_02.png"],
+    "hazard": ["hazard_01.png", "hazard_02.png"]
+  },
+  "blob47": {
+    "wall":  { "sheets": ["wall_blob47_a.png", "wall_blob47_b.png"],   "masks": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 19, 23, 27, 31, 38, 39, 46, 47, 55, 63, 76, 77, 78, 79, 95, 110, 111, 127, 137, 139, 141, 143, 155, 159, 175, 191, 205, 207, 223, 239, 255] },
+    "water": { "sheets": ["water_blob47_a.png", "water_blob47_b.png"], "masks": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 19, 23, 27, 31, 38, 39, 46, 47, 55, 63, 76, 77, 78, 79, 95, 110, 111, 127, 137, 139, 141, 143, 155, 159, 175, 191, 205, 207, 223, 239, 255] },
+    "pit":   { "sheet": "pit_blob47.png", "masks": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 19, 23, 27, 31, 38, 39, 46, 47, 55, 63, 76, 77, 78, 79, 95, 110, 111, 127, 137, 139, 141, 143, 155, 159, 175, 191, 205, 207, 223, 239, 255] }
+  },
+  "decals": [
+    { "file": "decal_01.png", "on": "floor", "density": 0.08 },
+    { "file": "decal_02.png", "on": "floor", "density": 0.06 },
+    { "file": "decal_03.png", "on": "floor", "density": 0.04 },
+    { "file": "decal_04.png", "on": "floor", "density": 0.03 },
+    { "file": "decal_05.png", "on": "wall",  "density": 0.12 },
+    { "file": "decal_06.png", "on": "water", "density": 0.10 }
+  ],
+  "fixtures": {
+    "door_ns": ["door_ns.png"],
+    "door_ew": ["door_ew.png"],
+    "door_ns_grate": ["door_ns_grate.png"],
+    "door_ew_grate": ["door_ew_grate.png"],
+    "gate_ns": ["gate_ns.png"],
+    "gate_ew": ["gate_ew.png"],
+    "grate_ns": ["grate_ns.png"],
+    "grate_ew": ["grate_ew.png"]
+  }
+}
